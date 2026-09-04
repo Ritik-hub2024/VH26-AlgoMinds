@@ -62,42 +62,144 @@ class LeakAnalyzer(ast.NodeVisitor):
     # Analysis
     # -------------------------------------------------------------------------
 
-    def _analyze_statements(self, statements: List[ast.stmt]) -> None:
+    def _analyze_statements(
+        self,
+        statements: List[ast.stmt],
+        parent_try: Optional[ast.Try] = None,
+        outer_subsequent: Optional[List[ast.stmt]] = None,
+    ) -> None:
         for i, stmt in enumerate(statements):
             # 1. with open(...) context manager (SAFE)
             if isinstance(stmt, (ast.With, ast.AsyncWith)):
                 self._handle_with(stmt)
-                continue
-
-            # 2. Raw allocation: f = open(...)
-            alloc = ResourceDetector.extract_allocation(stmt)
-            if not alloc:
-                continue
-
-            var_name, open_line, _ = alloc
-            resource = Resource(
-                variable_name=var_name,
-                resource_type="file",
-                opening_line=open_line,
-                function_name=self._current_function,
-                status="LEAK",
-                file_path=self.current_file,
-            )
-
-            status, close_line, problem, leak_path, _ = (
-                ControlFlowAnalyzer.evaluate_resource_lifecycle(
-                    var_name=var_name,
-                    open_line=open_line,
-                    subsequent_stmts=statements[i + 1 :],
-                    function_name=self._current_function,
+                self._analyze_statements(
+                    stmt.body,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
                 )
-            )
+                continue
 
-            resource.status = status
-            resource.closing_line = close_line
-            resource.explanation = problem
-            resource.leak_path = leak_path
-            self.resources.append(resource)
+            # 2. Raw allocation: f = open(...) or conn = sqlite3.connect(...)
+            alloc = ResourceDetector.extract_allocation(stmt)
+            if alloc:
+                var_name, open_line, target, *rest = alloc
+                res_type = rest[0] if rest else "file"
+                acquire_name = "sqlite3.connect" if res_type == "SQLite connection" else "open"
+
+                resource = Resource(
+                    variable_name=var_name,
+                    resource_type=res_type,
+                    opening_line=open_line,
+                    function_name=self._current_function,
+                    status="LEAK",
+                    file_path=self.current_file,
+                )
+
+                subsequent_stmts = statements[i + 1 :] + (outer_subsequent or [])
+
+                # If parent_try has a guaranteed finally close, evaluate that first
+                if parent_try and parent_try.finalbody:
+                    finally_close = CloseDetector.find_close_in_stmts(parent_try.finalbody, var_name)
+                    if finally_close and not ControlFlowAnalyzer._find_unclosed_exit_detail(parent_try.finalbody, var_name):
+                        resource.status = "SAFE"
+                        resource.closing_line = finally_close
+                        resource.explanation = f"Guaranteed closed in finally block at line {finally_close}."
+                        resource.leak_path = None
+                        self.resources.append(resource)
+                        continue
+
+                status, close_line, problem, leak_path, _ = (
+                    ControlFlowAnalyzer.evaluate_resource_lifecycle(
+                        var_name=var_name,
+                        open_line=open_line,
+                        subsequent_stmts=subsequent_stmts,
+                        function_name=self._current_function,
+                        resource_type=res_type,
+                        acquire_name=acquire_name,
+                    )
+                )
+
+                # If parent_try exists without finally close, check parent_try handlers
+                if parent_try and status == "SAFE":
+                    for h in parent_try.handlers:
+                        h_exit = ControlFlowAnalyzer._find_unclosed_exit_detail(h.body, var_name)
+                        if h_exit:
+                            exit_line, exit_type = h_exit
+                            exc_type_str = ControlFlowAnalyzer.format_condition(h.type) if h.type else ""
+                            exc_desc = f"except {exc_type_str}" if exc_type_str else "except"
+                            status = "LEAK"
+                            close_line = None
+                            problem = (
+                                f"Resource '{var_name}' opened at line {open_line} is not closed on exception path "
+                                f"'{exc_desc}' at line {h.lineno} due to {exit_type} at line {exit_line}."
+                            )
+                            leak_path = (
+                                f"L{open_line}: {acquire_name}() -> L{parent_try.lineno}: try -> L{h.lineno}: {exc_desc} "
+                                f"-> L{exit_line}: {exit_type} (leak)"
+                            )
+                            break
+
+                resource.status = status
+                resource.closing_line = close_line
+                resource.explanation = problem
+                resource.leak_path = leak_path
+                self.resources.append(resource)
+                continue
+
+            # 3. Recurse into Try statements
+            if isinstance(stmt, ast.Try):
+                self._analyze_statements(
+                    stmt.body,
+                    parent_try=stmt,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                )
+                if stmt.orelse:
+                    self._analyze_statements(
+                        stmt.orelse,
+                        parent_try=stmt,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                for h in stmt.handlers:
+                    self._analyze_statements(
+                        h.body,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                if stmt.finalbody:
+                    self._analyze_statements(
+                        stmt.finalbody,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
+
+            # 4. Recurse into If statements
+            if isinstance(stmt, ast.If):
+                self._analyze_statements(
+                    stmt.body,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                )
+                if stmt.orelse:
+                    self._analyze_statements(
+                        stmt.orelse,
+                        parent_try=parent_try,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
+
+            # 5. Recurse into loop statements
+            if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+                self._analyze_statements(
+                    stmt.body,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                )
+                if stmt.orelse:
+                    self._analyze_statements(
+                        stmt.orelse,
+                        parent_try=parent_try,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
 
     def _handle_with(self, node: ast.AST) -> None:
         items = getattr(node, "items", [])

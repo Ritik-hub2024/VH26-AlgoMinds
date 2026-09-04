@@ -72,3 +72,79 @@ def run():
     resources = analyzer.analyze_tree(res.tree)
     assert len(resources) == 1
     assert resources[0].status == "LEAK"
+
+
+def test_exception_path_early_return_leaks(analyzer, parser):
+    code = """
+def run():
+    f = open("log.txt")
+    try:
+        return f.read()
+    except ValueError:
+        return "DEFAULT"
+    f.close()
+"""
+    res = parser.parse_source(code)
+    resources = analyzer.analyze_tree(res.tree)
+    assert len(resources) == 1
+    assert resources[0].status == "LEAK"
+    assert "except ValueError" in resources[0].leak_path
+    assert "return (leak)" in resources[0].leak_path
+
+
+def test_finally_close_is_safe(analyzer, parser):
+    code = """
+def run():
+    f = open("log.txt")
+    try:
+        return f.read()
+    except ValueError:
+        return "DEFAULT"
+    finally:
+        f.close()
+"""
+    res = parser.parse_source(code)
+    resources = analyzer.analyze_tree(res.tree)
+    assert len(resources) == 1
+    assert resources[0].status == "SAFE"
+
+
+def test_leak_exception_sample_file(analyzer, python_dir):
+    target = python_dir / "leak_exception.py"
+    assert target.exists()
+    res, resources = analyzer.analyze_file(target)
+    assert res.success
+    assert len(resources) == 1
+    assert resources[0].status == "LEAK"
+    assert "except ValueError" in resources[0].leak_path
+
+
+def test_safe_finally_sample_file(analyzer, python_dir):
+    target = python_dir / "safe_finally.py"
+    assert target.exists()
+    res, resources = analyzer.analyze_file(target)
+    assert res.success
+    assert len(resources) == 1
+    assert resources[0].status == "SAFE"
+
+
+def test_sqlite_leak_sample_file(analyzer, python_dir):
+    target = python_dir / "leaks" / "database_leak.py"
+    assert target.exists()
+    res, resources = analyzer.analyze_file(target)
+    assert res.success
+    assert len(resources) == 1
+    assert resources[0].status == "LEAK"
+    assert resources[0].resource_type == "SQLite connection"
+
+
+def test_sqlite_safe_sample_file(analyzer, python_dir):
+    target = python_dir / "safe" / "database_safe.py"
+    assert target.exists()
+    res, resources = analyzer.analyze_file(target)
+    assert res.success
+    assert len(resources) == 1
+    assert resources[0].status == "SAFE"
+    assert resources[0].resource_type == "SQLite connection"
+
+

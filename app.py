@@ -105,6 +105,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         try:
+            import importlib
+            importlib.reload(cli)
             report = cli.scan_target(str(target_path))
             has_leaks = len(report.issues) > 0
             has_syntax_errors = len(report.syntax_errors) > 0

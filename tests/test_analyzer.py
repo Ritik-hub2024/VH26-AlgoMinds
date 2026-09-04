@@ -215,3 +215,40 @@ class TestNewPythonSampleFiles:
         assert len(resources) == 1
         assert resources[0].status == "SAFE"
         assert len(rule.issues) == 0
+
+    def test_sample_database_leak_py(self, parser, python_dir):
+        from analyzer.rules.sqlite_leak import SqliteLeakRule
+        sqlite_rule = SqliteLeakRule()
+        file_path = python_dir / "leaks" / "database_leak.py"
+        assert file_path.exists()
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = sqlite_rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert resources[0].resource_type == "SQLite connection"
+
+    def test_sample_database_early_return_py(self, parser, python_dir):
+        from analyzer.rules.sqlite_leak import SqliteLeakRule
+        sqlite_rule = SqliteLeakRule()
+        file_path = python_dir / "leaks" / "database_early_return.py"
+        assert file_path.exists()
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = sqlite_rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert resources[0].resource_type == "SQLite connection"
+
+    def test_sample_database_safe_py(self, parser, python_dir):
+        from analyzer.rules.sqlite_leak import SqliteLeakRule
+        sqlite_rule = SqliteLeakRule()
+        file_path = python_dir / "safe" / "database_safe.py"
+        assert file_path.exists()
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = sqlite_rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert resources[0].resource_type == "SQLite connection"
+
