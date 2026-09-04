@@ -57,7 +57,7 @@ class LeakIssue:
             "variable": var_name,
             "resource_type": self.resource_type,
             "problem": self.problem,
-            "reason": self.problem,
+            "reason": self.message or self.problem,
             "leak_path": self.leak_path,
             "path": self.leak_path,
             "cleanup_status": self.cleanup_status,

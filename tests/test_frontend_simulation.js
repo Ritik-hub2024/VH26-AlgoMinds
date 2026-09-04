@@ -103,6 +103,37 @@ async function runTest() {
       };
     }
 
+    if (url.includes('sqlite_leak')) {
+      return {
+        ok: true,
+        json: async () => ({
+          status: 'FAILED',
+          files_scanned: 1,
+          clean_files: 0,
+          syntax_errors: 0,
+          leaks_detected: 1,
+          duration_seconds: 0.0025,
+          findings: [{
+            severity: 'HIGH',
+            file: 'python/leaks/sqlite_leak.py',
+            line: 5,
+            opened_line: 5,
+            resource: 'conn (SQLite connection)',
+            variable: 'conn',
+            reason: "Resource 'conn' (type: SQLite connection) allocated at line 5 is not guaranteed to be closed.",
+            leak_path: 'L5: sqlite3.connect() -> L8: return (leak)',
+            path: 'L5: sqlite3.connect() -> L8: return (leak)',
+            cleanup_status: 'UNCLOSED',
+            recommendation: "Call 'conn.close()' before returning."
+          }],
+          syntax_errors_list: [],
+          files: [
+            { file: 'python/leaks/sqlite_leak.py', status: 'LEAK', ast_details: '1 resource leak(s) detected', location: 'Line 5' }
+          ]
+        })
+      };
+    }
+
     if (url.includes('target=python%2Fsafe') || url.includes('safe')) {
       return {
         ok: true,
@@ -192,7 +223,16 @@ async function runTest() {
   console.assert(String(elements['val-scanned'].textContent) === '3', 'Expected 3 files on rescanning examples');
   console.log('  PASS: Rescan after reset successfully completes second full cycle.');
 
-  console.log('\nALL 5 FRONTEND SIMULATION TESTS PASSED SUCCESSFULLY!');
+  console.log('[TEST 6] Scan SQLite leak target:');
+  elements['scan-target-select'].value = 'python/leaks/sqlite_leak.py';
+  await scanFn();
+  console.assert(elements['status-title'].textContent.includes('FAILED'), 'Status should be FAILED for SQLite leak');
+  console.assert(String(elements['val-leaks'].textContent) === '1', 'Expected 1 leak');
+  console.assert(elements['findings-container'].innerHTML.includes('SQLite connection'), 'Findings should show SQLite connection');
+  console.assert(elements['findings-container'].innerHTML.includes('conn'), 'Findings should show variable conn');
+  console.log('  PASS: SQLite leak displays correctly on dashboard with Resource: SQLite Connection.');
+
+  console.log('\nALL 6 FRONTEND SIMULATION TESTS PASSED SUCCESSFULLY!');
 }
 
 runTest().catch(err => {

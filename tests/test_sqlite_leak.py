@@ -161,6 +161,180 @@ def query_db():
         assert "except sqlite3.DatabaseError" in issue.leak_path
         assert "return (leak)" in issue.leak_path
 
+    # SUPPORTED CASE 2 — SQLite explicit close
+    def test_case_2_sqlite_explicit_close_safe(self, parser, sqlite_rule):
+        code = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+    data = conn.execute("SELECT * FROM users").fetchall()
+    conn.close()
+    return data
+"""
+        parse_res = parser.parse_source(code, filename="test_explicit_close.py")
+        assert parse_res.success
+        resources = sqlite_rule.detect_resources(parse_res.tree, file_path="test_explicit_close.py")
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert resources[0].closing_line == 7
+        assert len(sqlite_rule.issues) == 0
+
+    # SUPPORTED CASE 6 — SQLite exception + finally
+    def test_case_6_sqlite_exception_plus_finally_safe(self, parser, sqlite_rule):
+        code = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+    try:
+        risky_operation()
+    except Exception:
+        return None
+    finally:
+        conn.close()
+"""
+        parse_res = parser.parse_source(code, filename="test_exc_finally.py")
+        assert parse_res.success
+        resources = sqlite_rule.detect_resources(parse_res.tree, file_path="test_exc_finally.py")
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(sqlite_rule.issues) == 0
+
+    # Exact verification of Milestone 2 Cases 1 through 6
+    def test_exact_milestone_cases_1_through_6(self, parser):
+        # CASE 1 — SQLite Leak
+        case1 = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+    return conn.execute("SELECT * FROM users").fetchall()
+"""
+        rule1 = SqliteLeakRule()
+        res1 = rule1.detect_resources(parser.parse_source(case1).tree)
+        assert res1[0].status == "LEAK"
+        assert len(rule1.issues) == 1
+        assert "L6: return (leak)" in rule1.issues[0].leak_path
+
+        # CASE 2 — SQLite Explicit Close
+        case2 = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+    data = conn.execute("SELECT * FROM users").fetchall()
+    conn.close()
+    return data
+"""
+        rule2 = SqliteLeakRule()
+        res2 = rule2.detect_resources(parser.parse_source(case2).tree)
+        assert res2[0].status == "SAFE"
+        assert len(rule2.issues) == 0
+
+        # CASE 3 — SQLite Early Return
+        case3 = """
+import sqlite3
+
+def get_users(error):
+    conn = sqlite3.connect("app.db")
+
+    if error:
+        return None
+
+    conn.close()
+    return []
+"""
+        rule3 = SqliteLeakRule()
+        res3 = rule3.detect_resources(parser.parse_source(case3).tree)
+        assert res3[0].status == "LEAK"
+        assert len(rule3.issues) == 1
+        assert "if error" in rule3.issues[0].leak_path
+        assert "return (leak)" in rule3.issues[0].leak_path
+
+        # CASE 4 — SQLite Finally
+        case4 = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+
+    try:
+        return conn.execute("SELECT * FROM users").fetchall()
+    finally:
+        conn.close()
+"""
+        rule4 = SqliteLeakRule()
+        res4 = rule4.detect_resources(parser.parse_source(case4).tree)
+        assert res4[0].status == "SAFE"
+        assert len(rule4.issues) == 0
+
+        # CASE 5 — SQLite Exception Path
+        case5 = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+
+    try:
+        risky_operation()
+    except Exception:
+        return None
+
+    conn.close()
+"""
+        rule5 = SqliteLeakRule()
+        res5 = rule5.detect_resources(parser.parse_source(case5).tree)
+        assert res5[0].status == "LEAK"
+        assert len(rule5.issues) == 1
+        assert "except Exception" in rule5.issues[0].leak_path
+        assert "return (leak)" in rule5.issues[0].leak_path
+
+        # CASE 6 — SQLite Exception + Finally
+        case6 = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+
+    try:
+        risky_operation()
+    except Exception:
+        return None
+    finally:
+        conn.close()
+"""
+        rule6 = SqliteLeakRule()
+        res6 = rule6.detect_resources(parser.parse_source(case6).tree)
+        assert res6[0].status == "SAFE"
+        assert len(rule6.issues) == 0
+
+    # Finding output dimensions
+    def test_sqlite_finding_output_dimensions(self, parser, sqlite_rule):
+        code = """
+import sqlite3
+
+def get_users():
+    conn = sqlite3.connect("app.db")
+    return conn.execute("SELECT * FROM users").fetchall()
+"""
+        parse_res = parser.parse_source(code, filename="python/leaks/sqlite_leak.py")
+        sqlite_rule.detect_resources(parse_res.tree, file_path="python/leaks/sqlite_leak.py")
+        assert len(sqlite_rule.issues) == 1
+        issue = sqlite_rule.issues[0]
+        d = issue.to_dict()
+
+        assert d["severity"] == "HIGH"
+        assert d["file"] == "python/leaks/sqlite_leak.py"
+        assert d["line"] == 5
+        assert d["opened_line"] == 5
+        assert d["resource"] == "conn (SQLite connection)"
+        assert d["variable"] == "conn"
+        assert "SQLite connection" in d["reason"]
+        assert "sqlite3.connect()" in d["path"] and "return (leak)" in d["path"]
+        assert d["cleanup_status"] == "UNCLOSED"
+        assert "conn.close()" in d["recommendation"]
+
     # Context manager with contextlib.closing
     def test_sqlite_closing_context_manager_safe(self, parser, sqlite_rule):
         code = """
