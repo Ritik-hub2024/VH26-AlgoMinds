@@ -81,6 +81,7 @@ class AnalysisReport:
     def to_dict(self) -> Dict[str, Any]:
         """Serialize report to structured JSON-compatible dictionary."""
         return {
+            "status": "PASS" if not self.has_errors_or_issues else "FAILED",
             "target_path": self.target_path,
             "summary": {
                 "files_scanned": self.files_scanned,

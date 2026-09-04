@@ -126,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(data => {
       if (data) renderReport(normalizeReport(data));
     })
-    .catch(() => {});
+    .catch(() => { });
 
   btnLoadSample.addEventListener('click', () => {
     fetch('./report.json')
