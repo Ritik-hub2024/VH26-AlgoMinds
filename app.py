@@ -2,7 +2,7 @@
 LeakGuard Dashboard Server & Runner
 
 Starts a local HTTP server serving the frontend dashboard
-and provides live scan results.
+and provides live AST scan results via /api/scan.
 """
 
 import http.server
@@ -45,16 +45,48 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if parsed.path == "/api/scan":
             self._handle_api_scan(parsed.query)
             return
+        if parsed.path == "/api/reset":
+            self._handle_api_reset()
+            return
         super().do_GET()
+
+    def _handle_api_reset(self):
+        self._send_json({
+            "status": "NOT_SCANNED",
+            "files_scanned": 0,
+            "clean_files": 0,
+            "syntax_errors": 0,
+            "leaks_detected": 0,
+            "last_scan": None,
+            "scan_duration_ms": 0,
+            "target": "examples/",
+            "findings": [],
+            "files": []
+        })
 
     def _handle_api_scan(self, query_str: str):
         qs = urllib.parse.parse_qs(query_str)
-        target = qs.get("target", ["python"])[0]
+        target = qs.get("target", ["examples"])[0].strip() or "examples"
 
-        # Resolve target safely within workspace
-        target_path = (ROOT_DIR / target).resolve()
-        if not target_path.exists():
-            target_path = Path(target).resolve()
+        # Security check: disallow path traversal outside project root
+        try:
+            target_path = (ROOT_DIR / target).resolve()
+            target_path.relative_to(ROOT_DIR)
+        except (ValueError, RuntimeError):
+            self._send_json(
+                {
+                    "error": "Access denied: Scan target must be within the LeakGuard project workspace.",
+                    "status": "ERROR",
+                    "files_scanned": 0,
+                    "clean_files": 0,
+                    "syntax_errors": 0,
+                    "leaks_detected": 0,
+                    "findings": [],
+                    "files": [],
+                },
+                status=403,
+            )
+            return
 
         if not target_path.exists():
             self._send_json(
@@ -66,6 +98,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "syntax_errors": 0,
                     "leaks_detected": 0,
                     "findings": [],
+                    "files": [],
                 },
                 status=404,
             )
@@ -73,14 +106,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         try:
             report = cli.scan_target(str(target_path))
-            data = report.to_dict()
-            data["status"] = "PASS" if not report.has_errors_or_issues else "FAILED"
-            data["files_scanned"] = report.files_scanned
-            data["clean_files"] = report.clean_files_count
-            data["syntax_errors_count"] = len(report.syntax_errors)
-            data["leaks_detected"] = len(report.issues)
+            has_leaks = len(report.issues) > 0
+            has_syntax_errors = len(report.syntax_errors) > 0
 
-            # Build normalized findings adhering to data contract
+            status_str = "FAILED" if (has_leaks or has_syntax_errors) else "PASS"
+
+            # Findings adhering to the data contract
             findings = []
             for issue in report.issues:
                 try:
@@ -89,21 +120,87 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     rel_file = issue.location.file_path
 
                 findings.append({
-                    "rule_id": issue.rule_id,
                     "severity": issue.severity.value if hasattr(issue.severity, "value") else str(issue.severity),
                     "file": rel_file,
                     "line": issue.location.line,
                     "resource": f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else (issue.resource_type or "Resource"),
-                    "resource_name": issue.resource_name,
-                    "resource_type": issue.resource_type,
-                    "reason": issue.problem or issue.message,
+                    "variable": issue.resource_name or "f",
+                    "reason": issue.message or issue.problem,
                     "leak_path": issue.leak_path or "",
                     "recommendation": issue.recommendation or "",
                     "function_name": issue.function_name or "",
+                    "rule_id": issue.rule_id,
                 })
-            data["findings"] = findings
 
-            # Also update frontend/report.json so static / file access remains fresh
+            # Syntax errors
+            syntax_errors = []
+            for err in report.syntax_errors:
+                try:
+                    rel_filename = Path(err.filename).relative_to(ROOT_DIR).as_posix()
+                except Exception:
+                    rel_filename = err.filename
+                syntax_errors.append({
+                    "file": rel_filename,
+                    "filename": rel_filename,
+                    "line": err.line,
+                    "column": err.column,
+                    "message": err.message,
+                    "text": err.text,
+                })
+
+            # File inventory
+            files_inventory = []
+            for r in report.parse_results:
+                try:
+                    rel_path = Path(r.file_path).relative_to(ROOT_DIR).as_posix()
+                except Exception:
+                    rel_path = Path(r.file_path).name
+
+                if not r.success:
+                    status_val = "SYNTAX ERROR" if r.syntax_error else "READ ERROR"
+                    details = f"SyntaxError: {r.syntax_error.message}" if r.syntax_error else (r.read_error or "Parse failure")
+                    loc = f"L{r.syntax_error.line}:{r.syntax_error.column}" if r.syntax_error and r.syntax_error.line else "-"
+                else:
+                    file_issues = [i for i in report.issues if i.location.file_path == r.file_path]
+                    if file_issues:
+                        status_val = "LEAK"
+                        details = f"{len(file_issues)} resource leak(s) detected"
+                        loc = f"Line {file_issues[0].location.line}"
+                    else:
+                        status_val = "CLEAN"
+                        details = "Clean AST parse - no resource leaks or syntax errors"
+                        loc = "Safe"
+
+                files_inventory.append({
+                    "file": rel_path,
+                    "status": status_val,
+                    "ast_details": details,
+                    "location": loc,
+                })
+
+            data = {
+                "status": status_str,
+                "target": target,
+                "files_scanned": report.files_scanned,
+                "clean_files": report.clean_files_count,
+                "syntax_errors": len(report.syntax_errors),
+                "leaks_detected": len(report.issues),
+                "last_scan": None,
+                "scan_duration_ms": round(report.duration_seconds * 1000, 2),
+                "duration_seconds": round(report.duration_seconds, 4),
+                "findings": findings,
+                "syntax_errors_list": syntax_errors,
+                "files": files_inventory,
+                "summary": {
+                    "files_scanned": report.files_scanned,
+                    "clean_files": report.clean_files_count,
+                    "syntax_errors_count": len(report.syntax_errors),
+                    "issues_count": len(report.issues),
+                    "duration_seconds": round(report.duration_seconds, 4),
+                },
+            }
+
+            # Update frontend/report.json for offline tooling
             try:
                 report_file = FRONTEND_DIR / "report.json"
                 with open(report_file, "w", encoding="utf-8") as rf:
@@ -134,6 +231,8 @@ def find_server(host: str = HOST, start_port: int = DEFAULT_PORT, max_attempts: 
             if "Address already in use" in str(e) or getattr(e, "errno", None) in (48, 98, 10048, 10013):
                 continue
             raise
+        except Exception:
+            continue
     raise RuntimeError(f"Could not find an available port between {start_port} and {start_port + max_attempts - 1}")
 
 

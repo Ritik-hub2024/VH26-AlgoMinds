@@ -1,27 +1,34 @@
 {
   "status": "PASS",
-  "target_path": "C:\\Users\\ratho\\.gemini\\antigravity\\scratch\\LeakGuard\\python\\safe_file.py",
-  "summary": {
-    "files_scanned": 1,
-    "clean_files": 1,
-    "syntax_errors_count": 0,
-    "issues_count": 0,
-    "duration_seconds": 0.0024
-  },
-  "syntax_errors": [],
-  "issues": [],
+  "target": "python/safe",
+  "files_scanned": 2,
+  "clean_files": 2,
+  "syntax_errors": 0,
+  "leaks_detected": 0,
+  "last_scan": null,
+  "scan_duration_ms": 4.77,
+  "duration_seconds": 0.0048,
+  "findings": [],
+  "syntax_errors_list": [],
   "files": [
     {
-      "file_path": "C:\\Users\\ratho\\.gemini\\antigravity\\scratch\\LeakGuard\\python\\safe_file.py",
-      "success": true,
-      "has_ast": true,
-      "syntax_error": null,
-      "read_error": null
+      "file": "python/safe/explicit_close.py",
+      "status": "CLEAN",
+      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
+      "location": "Safe"
+    },
+    {
+      "file": "python/safe/with_file.py",
+      "status": "CLEAN",
+      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
+      "location": "Safe"
     }
   ],
-  "files_scanned": 1,
-  "clean_files": 1,
-  "syntax_errors_count": 0,
-  "leaks_detected": 0,
-  "findings": []
+  "summary": {
+    "files_scanned": 2,
+    "clean_files": 2,
+    "syntax_errors_count": 0,
+    "issues_count": 0,
+    "duration_seconds": 0.0048
+  }
 }

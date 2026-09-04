@@ -163,7 +163,22 @@ python -m pytest tests/ -v
 python -m unittest discover -s tests -v
 ```
 
-### 3. Run Parser Benchmark
+### 3. Run the Web Dashboard
+Launch the interactive security dashboard with live Python AST scanning:
+```bash
+# Start the local server
+python app.py
+
+# Or via the runner
+python run.py app.py
+```
+Open `http://localhost:8000` to interact with the dashboard:
+- Select a target (e.g. `Examples Suite (examples/)` or `python/safe/`)
+- Click **Scan Python Project** to execute live AST control-flow analysis
+- Inspect PASS / FAILED status and actionable findings
+- Click **Reset** to restore the dashboard to its clean state
+
+### 4. Run Parser Benchmark
 Measure parsing throughput across any directory:
 ```bash
 python benchmark/benchmark_parser.py .
