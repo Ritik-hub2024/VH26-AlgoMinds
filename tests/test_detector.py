@@ -402,3 +402,49 @@ class TestSampleFilesUnderPython:
         assert len(rule.issues) == 1
         assert "except ValueError" in rule.issues[0].leak_path
         assert "return (leak)" in rule.issues[0].leak_path
+
+    def test_01_file_no_close_py(self, parser, rule, python_dir):
+        file_path = python_dir / "01_file_no_close.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].variable_name == "f"
+        assert resources[0].resource_type == "file"
+        assert resources[0].status == "LEAK"
+        assert resources[0].opening_line == 6
+
+    def test_02_file_early_return_py(self, parser, rule, python_dir):
+        file_path = python_dir / "02_file_early_return.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        r = resources[0]
+        assert r.status == "LEAK"
+        assert r.variable_name == "f"
+        assert r.opening_line == 9
+        assert "skip" in r.explanation
+        assert "L9: open() -> L11: if skip -> L13: return (leak)" in r.leak_path
+
+    def test_04_file_with_py(self, parser, rule, python_dir):
+        file_path = python_dir / "04_file_with.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        r = resources[0]
+        assert r.status == "SAFE"
+        assert r.is_context_manager is True
+        assert len(rule.issues) == 0
+
+    def test_10_normal_close_py(self, parser, rule, python_dir):
+        file_path = python_dir / "10_normal_close.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].variable_name == "f"
+        assert resources[0].status == "SAFE"
+        assert resources[0].closing_line == 8
+        assert len(rule.issues) == 0

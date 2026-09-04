@@ -16,6 +16,33 @@ LeakGuard is a lightweight, zero-dependency static analysis tool designed specif
 
 ---
 
+## Architecture
+
+```
+Developer / CI
+    ↓
+CLI / Web API
+    ↓
+Analysis Engine
+    ↓
+Python AST Parser
+    ↓
+Resource Lifecycle Rules
+    ↓
+Structured Report
+    ↓
+Console / JSON / Dashboard / GitHub CI
+```
+
+- **Python AST Parser (`parser/`)**: The parsing layer converts Python source code into AST representations safely via `ast.parse` with guaranteed zero code execution.
+- **Analysis Engine & Rules (`analyzer/`)**: The core detection layer coordinates lifecycle rules (`FileLeakRule`, `SQLiteLeakRule`) inheriting from `BaseResourceLifecycleRule` to evaluate sequential statements, branches, early returns, exceptions, and `finally` cleanup.
+- **Domain Models (`models/`)**: Structured data representations for resources, leak issues, severity levels, syntax errors, and analysis reports.
+- **Reporting Engine (`reporter/`)**: Output formatting layer providing human-readable terminal reports (`ConsoleReporter`), machine-readable JSON (`JSONReporter`), and GitHub Actions job summaries (`MarkdownReporter`).
+- **Interactive Dashboard (`frontend/` & `app.py`)**: Visualization layer presenting live scan metrics, severity filtering, code snippets, and leak path traces.
+- **GitHub Actions CI/CD (`.github/workflows/ci.yml`)**: Automated CI enforcement layer enforcing deterministic exit codes (0 for clean code, 1 for blocking leaks).
+
+---
+
 ## Round-2 Validation & Benchmark Suite
 
 ### 1. Supported Python Resources
@@ -248,11 +275,8 @@ python cli.py python/ --format json
 ### 2. Run Tests
 Ensure all tests pass using `pytest`:
 ```bash
-# Run root test suite (89 tests)
+# Run full consolidated test suite (108 tests)
 python -m pytest tests/ -v
-
-# Run backend test suite (14 tests)
-python -m pytest backend/tests/ -v
 ```
 
 ### 3. Run Benchmark

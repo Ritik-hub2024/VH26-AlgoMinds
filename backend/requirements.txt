@@ -1,3 +1,0 @@
-# LeakGuard - Python-only Static Analyzer
-# Core analyzer has zero external dependencies (Python standard library only).
-pytest>=7.0.0

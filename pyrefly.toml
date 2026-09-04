@@ -1,7 +1,6 @@
 # Pyrefly Configuration for LeakGuard
 project-includes = [
     "analyzer/**/*.py",
-    "backend/**/*.py",
     "benchmark/**/*.py",
     "examples/**/*.py",
     "leakguard/**/*.py",
@@ -24,5 +23,4 @@ project-excludes = [
 
 search-path = [
     ".",
-    "backend",
 ]
