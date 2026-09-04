@@ -198,8 +198,8 @@ cursor.execute("SELECT 1")
 class TestSqliteSampleFiles:
     """Verify newly created sample test files under python/leaks and python/safe."""
 
-    def test_sample_database_leak(self, engine, python_dir):
-        file_path = python_dir / "leaks" / "database_leak.py"
+    def test_sample_sqlite_leak(self, engine, python_dir):
+        file_path = python_dir / "leaks" / "sqlite_leak.py"
         assert file_path.exists()
         parse_res, issues = engine.analyze_file(file_path)
         assert parse_res.success
@@ -208,8 +208,8 @@ class TestSqliteSampleFiles:
         assert issues[0].resource_type == "SQLite connection"
         assert issues[0].resource_name == "conn"
 
-    def test_sample_database_early_return(self, engine, python_dir):
-        file_path = python_dir / "leaks" / "database_early_return.py"
+    def test_sample_sqlite_early_return(self, engine, python_dir):
+        file_path = python_dir / "leaks" / "sqlite_early_return.py"
         assert file_path.exists()
         parse_res, issues = engine.analyze_file(file_path)
         assert parse_res.success
@@ -218,8 +218,8 @@ class TestSqliteSampleFiles:
         assert issues[0].resource_type == "SQLite connection"
         assert "flag" in issues[0].problem
 
-    def test_sample_database_safe(self, engine, python_dir):
-        file_path = python_dir / "safe" / "database_safe.py"
+    def test_sample_sqlite_safe(self, engine, python_dir):
+        file_path = python_dir / "safe" / "sqlite_safe.py"
         assert file_path.exists()
         parse_res, issues = engine.analyze_file(file_path)
         assert parse_res.success

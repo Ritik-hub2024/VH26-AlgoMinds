@@ -1,311 +1,37 @@
 {
   "status": "FAILED",
-  "target": "python",
-  "files_scanned": 24,
-  "clean_files": 12,
-  "syntax_errors": 0,
-  "leaks_detected": 12,
+  "target": "python/syntax",
+  "files_scanned": 1,
+  "clean_files": 0,
+  "syntax_errors": 1,
+  "leaks_detected": 0,
   "last_scan": null,
-  "scan_duration_ms": 63.58,
-  "duration_seconds": 0.0636,
-  "findings": [
+  "scan_duration_ms": 2.42,
+  "duration_seconds": 0.0024,
+  "findings": [],
+  "syntax_errors_list": [
     {
-      "severity": "HIGH",
-      "file": "python/01_file_no_close.py",
-      "line": 6,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 6 in function 'load_data' is not guaranteed to be closed: Early return at line 8 exits before 'f.close()' is reached.",
-      "leak_path": "L6: open() -> L8: return (leak)",
-      "recommendation": "Call 'f.close()' before returning at line 8, or use 'with open(...) as f:'.",
-      "function_name": "load_data",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/02_file_early_return.py",
-      "line": 9,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 9 in function 'parse_header_or_skip' is not guaranteed to be closed: Resource 'f' opened at line 9 is not closed if condition 'skip' at line 11 is met due to early return at line 13.",
-      "leak_path": "L9: open() -> L11: if skip -> L13: return (leak)",
-      "recommendation": "Use 'with open(...) as f:', or invoke 'f.close()' before returning at line 13.",
-      "function_name": "parse_header_or_skip",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leak_early_return.py",
-      "line": 10,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 10 in function 'parse_header_or_skip' is not guaranteed to be closed: Resource 'f' opened at line 10 is not closed if condition 'skip' at line 12 is met due to early return at line 14.",
-      "leak_path": "L10: open() -> L12: if skip -> L14: return (leak)",
-      "recommendation": "Use 'with open(...) as f:', or invoke 'f.close()' before returning at line 14.",
-      "function_name": "parse_header_or_skip",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leak_exception.py",
-      "line": 13,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 13 in function 'parse_record_with_exception_leak' is not guaranteed to be closed: Resource 'f' opened at line 13 is not closed on exception path 'except ValueError' at line 18 due to return at line 20.",
-      "leak_path": "L13: open() -> L14: try -> L18: except ValueError -> L20: return (leak)",
-      "recommendation": "Ensure 'f.close()' is called in a 'finally:' block or inside the 'except ValueError' handler, or use 'with open(...) as f:'.",
-      "function_name": "parse_record_with_exception_leak",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leak_file.py",
-      "line": 9,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 9 in function 'load_user_records' is not guaranteed to be closed: Early return at line 11 exits before 'f.close()' is reached.",
-      "leak_path": "L9: open() -> L11: return (leak)",
-      "recommendation": "Call 'f.close()' before returning at line 11, or use 'with open(...) as f:'.",
-      "function_name": "load_user_records",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leak_if_else.py",
-      "line": 10,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 10 in function 'process_with_branch' is not guaranteed to be closed: Resource 'f' opened at line 10 is not closed in else branch due to early return at line 18.",
-      "leak_path": "L10: open() -> L12: else -> L18: return (leak)",
-      "recommendation": "Use 'with open(...) as f:', or invoke 'f.close()' before returning at line 18.",
-      "function_name": "process_with_branch",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/database_early_return.py",
-      "line": 5,
-      "resource": "conn (SQLite connection)",
-      "variable": "conn",
-      "reason": "Resource 'conn' (type: SQLite connection) allocated at line 5 in function 'get_users' is not guaranteed to be closed: Resource 'conn' opened at line 5 is not closed if condition 'flag' at line 6 is met due to early return at line 7.",
-      "leak_path": "L5: sqlite3.connect() -> L6: if flag -> L7: return (leak)",
-      "recommendation": "Invoke 'conn.close()' before returning at line 7, or wrap in try...finally.",
-      "function_name": "get_users",
-      "rule_id": "LEAK002"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/database_leak.py",
-      "line": 5,
-      "resource": "conn (SQLite connection)",
-      "variable": "conn",
-      "reason": "Resource 'conn' (type: SQLite connection) allocated at line 5 in function 'get_users' is not guaranteed to be closed: Early return at line 8 exits before 'conn.close()' is reached.",
-      "leak_path": "L5: sqlite3.connect() -> L8: return (leak)",
-      "recommendation": "Call 'conn.close()' before returning at line 8, or wrap in try...finally.",
-      "function_name": "get_users",
-      "rule_id": "LEAK002"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/early_return.py",
-      "line": 4,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 4 in function 'parse_with_condition' is not guaranteed to be closed: Resource 'f' opened at line 4 is not closed if condition 'skip' at line 5 is met due to early return at line 6.",
-      "leak_path": "L4: open() -> L5: if skip -> L6: return (leak)",
-      "recommendation": "Use 'with open(...) as f:', or invoke 'f.close()' before returning at line 6.",
-      "function_name": "parse_with_condition",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/exception_leak.py",
-      "line": 5,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 5 in function 'load_data' is not guaranteed to be closed: Resource 'f' opened at line 5 is not closed on exception path 'except Exception' at line 8 due to return at line 9.",
-      "leak_path": "L5: open() -> L6: try -> L8: except Exception -> L9: return (leak)",
-      "recommendation": "Ensure 'f.close()' is called in a 'finally:' block or inside the 'except Exception' handler, or use 'with open(...) as f:'.",
-      "function_name": "load_data",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/file_no_close.py",
-      "line": 4,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 4 in function 'process_data' is not guaranteed to be closed: Early return at line 6 exits before 'f.close()' is reached.",
-      "leak_path": "L4: open() -> L6: return (leak)",
-      "recommendation": "Call 'f.close()' before returning at line 6, or use 'with open(...) as f:'.",
-      "function_name": "process_data",
-      "rule_id": "LEAK001"
-    },
-    {
-      "severity": "HIGH",
-      "file": "python/leaks/raise_leak.py",
-      "line": 5,
-      "resource": "f (file)",
-      "variable": "f",
-      "reason": "Resource 'f' (type: file) allocated at line 5 in function 'load_data' is not guaranteed to be closed: Exception raised at line 6 terminates execution before 'f.close()'.",
-      "leak_path": "L5: open() -> L6: raise (leak)",
-      "recommendation": "Wrap resource in 'try...finally' to guarantee 'f.close()' runs on error.",
-      "function_name": "load_data",
-      "rule_id": "LEAK001"
+      "file": "python/syntax/invalid_python.py",
+      "filename": "python/syntax/invalid_python.py",
+      "line": 3,
+      "column": 21,
+      "message": "invalid syntax",
+      "text": "def broken_function(:\n"
     }
   ],
-  "syntax_errors_list": [],
   "files": [
     {
-      "file": "python/01_file_no_close.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 6"
-    },
-    {
-      "file": "python/02_file_early_return.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 9"
-    },
-    {
-      "file": "python/04_file_with.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/10_normal_close.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/leak_early_return.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 10"
-    },
-    {
-      "file": "python/leak_exception.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 13"
-    },
-    {
-      "file": "python/leak_file.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 9"
-    },
-    {
-      "file": "python/leak_if_else.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 10"
-    },
-    {
-      "file": "python/leaks/database_early_return.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 5"
-    },
-    {
-      "file": "python/leaks/database_leak.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 5"
-    },
-    {
-      "file": "python/leaks/early_return.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 4"
-    },
-    {
-      "file": "python/leaks/exception_leak.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 5"
-    },
-    {
-      "file": "python/leaks/file_no_close.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 4"
-    },
-    {
-      "file": "python/leaks/raise_leak.py",
-      "status": "LEAK",
-      "ast_details": "1 resource leak(s) detected",
-      "location": "Line 5"
-    },
-    {
-      "file": "python/safe/database_safe.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe/exception_finally.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe/explicit_close.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe/finally_close.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe/with_file.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe_file.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe_finally.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe_try_finally.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe_with.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
-    },
-    {
-      "file": "python/safe_with_early_return.py",
-      "status": "CLEAN",
-      "ast_details": "Clean AST parse - no resource leaks or syntax errors",
-      "location": "Safe"
+      "file": "python/syntax/invalid_python.py",
+      "status": "SYNTAX ERROR",
+      "ast_details": "SyntaxError: invalid syntax",
+      "location": "L3:21"
     }
   ],
   "summary": {
-    "files_scanned": 24,
-    "clean_files": 12,
-    "syntax_errors_count": 0,
-    "issues_count": 12,
-    "duration_seconds": 0.0636
+    "files_scanned": 1,
+    "clean_files": 0,
+    "syntax_errors_count": 1,
+    "issues_count": 0,
+    "duration_seconds": 0.0024
   }
 }

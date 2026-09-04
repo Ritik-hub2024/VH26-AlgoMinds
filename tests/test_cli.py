@@ -40,7 +40,8 @@ class TestCLI(unittest.TestCase):
         # 5 Leak (01_file_no_close, 02_file_early_return, leak_file, leak_early_return, leak_if_else)
         self.assertGreaterEqual(report.files_scanned, 11)
         self.assertGreaterEqual(len(report.issues), 5)
-        self.assertEqual(len(report.syntax_errors), 0)
+        self.assertEqual(len(report.syntax_errors), 1)
+        self.assertIn("invalid_python.py", report.syntax_errors[0].filename)
         self.assertGreaterEqual(report.clean_files_count, 6)
 
     def test_scan_examples_directory(self):

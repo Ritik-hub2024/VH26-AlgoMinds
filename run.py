@@ -36,6 +36,12 @@ def main():
         cmd = [sys.executable, "-m", "pytest", "tests/", "-v"] + args[1:]
         sys.exit(subprocess.call(cmd))
 
+    # Benchmark commands
+    if args[0] in ("benchmark", "bench", "eval"):
+        from benchmark.run_benchmark import run_benchmark
+        run_benchmark()
+        sys.exit(0)
+
     # Direct CLI scan
     if args[0] in ("cli.py", "cli", "scan"):
         import cli

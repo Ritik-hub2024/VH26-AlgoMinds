@@ -216,10 +216,10 @@ class TestNewPythonSampleFiles:
         assert resources[0].status == "SAFE"
         assert len(rule.issues) == 0
 
-    def test_sample_database_leak_py(self, parser, python_dir):
+    def test_sample_sqlite_leak_py(self, parser, python_dir):
         from analyzer.rules.sqlite_leak import SqliteLeakRule
         sqlite_rule = SqliteLeakRule()
-        file_path = python_dir / "leaks" / "database_leak.py"
+        file_path = python_dir / "leaks" / "sqlite_leak.py"
         assert file_path.exists()
         parse_res = parser.parse_file(file_path)
         assert parse_res.success
@@ -227,11 +227,12 @@ class TestNewPythonSampleFiles:
         assert len(resources) == 1
         assert resources[0].status == "LEAK"
         assert resources[0].resource_type == "SQLite connection"
+        assert resources[0].opening_line == 5
 
-    def test_sample_database_early_return_py(self, parser, python_dir):
+    def test_sample_sqlite_early_return_py(self, parser, python_dir):
         from analyzer.rules.sqlite_leak import SqliteLeakRule
         sqlite_rule = SqliteLeakRule()
-        file_path = python_dir / "leaks" / "database_early_return.py"
+        file_path = python_dir / "leaks" / "sqlite_early_return.py"
         assert file_path.exists()
         parse_res = parser.parse_file(file_path)
         assert parse_res.success
@@ -239,11 +240,12 @@ class TestNewPythonSampleFiles:
         assert len(resources) == 1
         assert resources[0].status == "LEAK"
         assert resources[0].resource_type == "SQLite connection"
+        assert resources[0].opening_line == 5
 
-    def test_sample_database_safe_py(self, parser, python_dir):
+    def test_sample_sqlite_safe_py(self, parser, python_dir):
         from analyzer.rules.sqlite_leak import SqliteLeakRule
         sqlite_rule = SqliteLeakRule()
-        file_path = python_dir / "safe" / "database_safe.py"
+        file_path = python_dir / "safe" / "sqlite_safe.py"
         assert file_path.exists()
         parse_res = parser.parse_file(file_path)
         assert parse_res.success
@@ -251,4 +253,106 @@ class TestNewPythonSampleFiles:
         assert len(resources) == 1
         assert resources[0].status == "SAFE"
         assert resources[0].resource_type == "SQLite connection"
+        assert resources[0].closing_line == 11
+
+    def test_sample_invalid_syntax_py(self, parser, python_dir):
+        file_path = python_dir / "syntax" / "invalid_python.py"
+        assert file_path.exists()
+        parse_res = parser.parse_file(file_path)
+        assert not parse_res.success
+        assert parse_res.tree is None
+        assert parse_res.syntax_error is not None
+        assert "invalid syntax" in parse_res.syntax_error.message.lower() or parse_res.syntax_error.line is not None
+
+
+class TestCanonicalCorpusSuite:
+    """Validate all 12 canonical Python test corpus files using AnalysisEngine."""
+
+    @pytest.fixture
+    def engine(self):
+        from analyzer.engine import AnalysisEngine
+        return AnalysisEngine()
+
+    # Intentional Leaks (6 cases)
+    def test_corpus_leak_file_no_close(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "file_no_close.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "file"
+        assert issues[0].location.line == 4
+        assert issues[0].rule_id == "LEAK001"
+
+    def test_corpus_leak_early_return(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "early_return.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "file"
+        assert issues[0].location.line == 4
+        assert "return" in issues[0].leak_path
+
+    def test_corpus_leak_exception_path(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "exception_leak.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "file"
+        assert issues[0].location.line == 5
+        assert "except" in issues[0].leak_path
+
+    def test_corpus_leak_raise(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "raise_leak.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "file"
+        assert issues[0].location.line == 5
+        assert "raise" in issues[0].leak_path
+
+    def test_corpus_leak_sqlite(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "sqlite_leak.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "SQLite connection"
+        assert issues[0].location.line == 5
+        assert issues[0].rule_id == "LEAK002"
+
+    def test_corpus_leak_sqlite_early_return(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "leaks" / "sqlite_early_return.py")
+        assert res.success
+        assert len(issues) == 1
+        assert issues[0].resource_type == "SQLite connection"
+        assert issues[0].location.line == 5
+        assert "return" in issues[0].leak_path
+
+    # Safe Patterns (5 cases)
+    def test_corpus_safe_explicit_close(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "safe" / "explicit_close.py")
+        assert res.success
+        assert len(issues) == 0
+
+    def test_corpus_safe_with_file(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "safe" / "with_file.py")
+        assert res.success
+        assert len(issues) == 0
+
+    def test_corpus_safe_finally_close(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "safe" / "finally_close.py")
+        assert res.success
+        assert len(issues) == 0
+
+    def test_corpus_safe_exception_finally(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "safe" / "exception_finally.py")
+        assert res.success
+        assert len(issues) == 0
+
+    def test_corpus_safe_sqlite(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "safe" / "sqlite_safe.py")
+        assert res.success
+        assert len(issues) == 0
+
+    # Syntax Error (1 case)
+    def test_corpus_syntax_error(self, engine, python_dir):
+        res, issues = engine.analyze_file(python_dir / "syntax" / "invalid_python.py")
+        assert not res.success
+        assert res.syntax_error is not None
+        assert len(issues) == 0
+
 

@@ -129,7 +129,7 @@ def test_safe_finally_sample_file(analyzer, python_dir):
 
 
 def test_sqlite_leak_sample_file(analyzer, python_dir):
-    target = python_dir / "leaks" / "database_leak.py"
+    target = python_dir / "leaks" / "sqlite_leak.py"
     assert target.exists()
     res, resources = analyzer.analyze_file(target)
     assert res.success
@@ -139,7 +139,7 @@ def test_sqlite_leak_sample_file(analyzer, python_dir):
 
 
 def test_sqlite_safe_sample_file(analyzer, python_dir):
-    target = python_dir / "safe" / "database_safe.py"
+    target = python_dir / "safe" / "sqlite_safe.py"
     assert target.exists()
     res, resources = analyzer.analyze_file(target)
     assert res.success

@@ -131,6 +131,17 @@ class TestServerHandler(unittest.TestCase):
         self.assertEqual(data["leaks_detected"], 0)
         self.assertEqual(len(data["findings"]), 0)
 
+    def test_handle_api_scan_syntax_suite(self):
+        """Scanning python/syntax should return FAILED with syntax error reported."""
+        self.handler._handle_api_scan("target=python/syntax")
+        data = self._get_response_data()
+
+        self.assertEqual(data["status"], "FAILED")
+        self.assertEqual(data["files_scanned"], 1)
+        self.assertEqual(data["syntax_errors"], 1)
+        self.assertEqual(len(data["syntax_errors_list"]), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
+

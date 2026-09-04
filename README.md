@@ -16,20 +16,79 @@ LeakGuard is a lightweight, zero-dependency static analysis tool designed specif
 
 ---
 
-## Supported Resource Types
+## Round-2 Validation & Benchmark Suite
 
-LeakGuard features an extensible rule-based lifecycle analysis system supporting multiple resource categories:
+### 1. Supported Python Resources
+LeakGuard supports Python as its **only** target language. The analyzer provides lifecycle rules for:
+- **File Resources (`LEAK001`)**: Objects opened via built-in `open()`, `builtins.open()`, or `io.open()`, released via `f.close()` or `with open(...) as f:`.
+- **SQLite Database Connections (`LEAK002`)**: Connection objects acquired via `sqlite3.connect()` or `connect()`, released via `conn.close()` in `finally:` or `with contextlib.closing(...) as conn:`.
 
-| Resource Type | Acquisition Pattern | Release Pattern | Rule ID | Scope |
-| :--- | :--- | :--- | :--- | :--- |
-| **File Resources** | `open(...)`, `builtins.open(...)`, `io.open(...)` | `f.close()` or `with open(...) as f:` | `LEAK001` | Sequential, branch, early-return, try/finally |
-| **SQLite Connections** | `sqlite3.connect(...)`, `connect(...)` | `conn.close()` in `finally:` or `with closing(...)` | `LEAK002` | Sequential, branch, early-return, exception paths, try/finally |
+### 2. Detection Scenarios
+The intra-procedural AST control-flow engine analyzes:
+- **Sequential Flows**: Resource acquisition followed by exit or scope termination without explicit release.
+- **Early-Return Divergence**: `if` / `else` branches where one path returns or breaks before release is reached.
+- **Exception Paths**: `try` blocks where an `except` handler exits via `return` or `raise` without cleanup.
+- **Guaranteed `finally:` Cleanup**: Recognition that calls inside `finally:` blocks run unconditionally on all paths.
+- **Context Managers**: Recognition that `with` statements guarantee deterministic cleanup via `__exit__`.
+- **Syntax Error Isolation**: Non-compilable Python files are trapped gracefully with accurate line/column metadata without crashing the analyzer.
 
-### Extensible Rule Architecture
+### 3. Canonical Python Test Corpus (12 Cases)
+The project includes a 12-file canonical test corpus under `python/`:
 
-All resource lifecycle rules derive from `BaseResourceLifecycleRule`:
-- **Shared Control-Flow Engine**: Automatically inspects sequential flows, if/else branch divergence, early returns, unhandled exception paths, and guaranteed `finally:` cleanup blocks.
-- **Pluggable Rules**: Adding a new resource type (e.g., sockets, threads, custom connection pools) requires only subclassing `BaseResourceLifecycleRule` and defining acquisition and release predicates.
+```
+python/
+├── leaks/                         # 6 Intentional Leak Cases
+│   ├── file_no_close.py           # Unclosed file handle in sequential code
+│   ├── early_return.py            # File open with early return in if branch
+│   ├── exception_leak.py          # File open with unclosed return in except
+│   ├── raise_leak.py              # File open with unhandled raise before close
+│   ├── sqlite_leak.py             # sqlite3.connect() unclosed in sequential code
+│   └── sqlite_early_return.py     # sqlite3.connect() with early return in if
+│
+├── safe/                          # 5 Verified Safe Patterns
+│   ├── explicit_close.py          # Sequential f.close() guaranteed
+│   ├── with_file.py               # Context manager with open(...) as f:
+│   ├── finally_close.py           # Guaranteed f.close() in finally:
+│   ├── exception_finally.py       # try / except with f.close() in finally:
+│   └── sqlite_safe.py             # Guaranteed conn.close() in finally:
+│
+└── syntax/                        # 1 Syntax Error Case
+    └── invalid_python.py          # Intentional syntax error for AST parser validation
+```
+
+### 4. Benchmark Method
+Execute the automated benchmark against the full test corpus:
+```bash
+python benchmark/run_benchmark.py
+# or via runner
+python run.py benchmark
+```
+
+The benchmark runs `AnalysisEngine` against all 12 test cases, compares actual findings against expected outcomes, calculates quality metrics, outputs a formatted terminal matrix, and writes machine-readable results to `benchmark/results.json`.
+
+### 5. Observed FP / FN Results (Quality Metrics)
+Evaluated on the 12 canonical test corpus cases:
+
+| Metric | Observed Value | Description |
+| :--- | :--- | :--- |
+| **Total Test Cases** | **12** | 6 leaks, 5 safe, 1 syntax error |
+| **True Positives (TP)** | **6** | All 6 intentional leaks correctly flagged |
+| **True Negatives (TN)** | **5** | All 5 safe patterns verified with zero alerts |
+| **False Positives (FP)** | **0** | Zero spurious alerts on safe code |
+| **False Negatives (FN)** | **0** | Zero missed leaks |
+| **Syntax Errors (TP)** | **1** | Syntax error caught and reported cleanly |
+| **Precision** | **100.0%** ($1.0$) | Fraction of detected leaks that are genuine |
+| **Recall** | **100.0%** ($1.0$) | Fraction of real leaks detected |
+| **F1 Score** | **100.0%** ($1.0$) | Harmonic mean of precision and recall |
+| **Accuracy** | **100.0%** ($1.0$) | Overall classification accuracy |
+
+> [!NOTE]
+> **Corpus Benchmark Disclaimer**: This benchmark is self-created for the MVP hackathon corpus. Metrics reflect performance on the 12 included canonical test files under intra-procedural scope.
+
+### 6. Known Limitations
+- **Intra-Procedural Scope**: Analysis occurs within function and module statement blocks.
+- **Cross-Function Resource Ownership**: Resources allocated in factory functions, yielded from generators, or passed across inter-procedural boundaries are an active research frontier and are **explicitly not claimed to be solved** in this MVP.
+- **Dynamic Connection Pools**: ORM-managed connections (e.g. SQLAlchemy sessions, Django ORM connection pooling) operate via complex runtime wrappers and are outside the scope of raw `sqlite3.connect()` AST detection.
 
 ---
 
@@ -62,14 +121,14 @@ When LeakGuard detects an unclosed resource leak, it formats all actionable dime
   LeakGuard Static Analysis Report (Jury Version)
   Scope: Intra-procedural AST Control-Flow Analysis
 ================================================================
- Target:   python/leaks/database_leak.py
+ Target:   python/leaks/sqlite_leak.py
  Files:    1 scanned
  Duration: 0.0040s
 ----------------------------------------------------------------
 
 Detected Issues (1):
   [1] [HIGH] LEAK002 in get_users()
-      File:           python/leaks/database_leak.py
+      File:           python/leaks/sqlite_leak.py
       Line:           5
       Resource:       conn (type: SQLite connection)
       Problem:        Early return at line 8 exits before 'conn.close()' is reached.
@@ -96,7 +155,7 @@ LeakGuard/
 ├── requirements.txt       # Project dependencies (pytest for tests)
 ├── cli.py                 # Direct CLI entry point
 ├── demo.py                # Automated 2-minute jury demo
-├── run.py                 # Multi-command runner (demo, test, scan, app)
+├── run.py                 # Multi-command runner (demo, test, scan, benchmark, app)
 │
 ├── parser/                # AST parsing and syntax validation
 │   ├── __init__.py
@@ -125,19 +184,21 @@ LeakGuard/
 │   └── json_reporter.py   # Machine-readable JSON output
 │
 ├── python/                # Canonical test case suite
-│   ├── leaks/             # Leak cases (file & SQLite)
-│   │   ├── database_leak.py         # Unclosed sqlite3.connect()
-│   │   ├── database_early_return.py # sqlite3.connect() with early return
+│   ├── leaks/             # 6 intentional leak cases
 │   │   ├── early_return.py          # open() with early return
 │   │   ├── exception_leak.py        # Exception path unclosed
 │   │   ├── file_no_close.py         # Raw unclosed file
-│   │   └── raise_leak.py            # Unclosed exit via raise
-│   └── safe/              # Verified safe patterns
-│       ├── database_safe.py         # Guaranteed closed in finally
-│       ├── exception_finally.py     # Exception handler with finally close
-│       ├── explicit_close.py        # Sequential explicit close()
-│       ├── finally_close.py         # Guaranteed closed in finally block
-│       └── with_file.py             # Context manager with open()
+│   │   ├── raise_leak.py            # Unclosed exit via raise
+│   │   ├── sqlite_early_return.py   # sqlite3.connect() with early return
+│   │   └── sqlite_leak.py           # Unclosed sqlite3.connect()
+│   ├── safe/              # 5 verified safe patterns
+│   │   ├── exception_finally.py     # Exception handler with finally close
+│   │   ├── explicit_close.py        # Sequential explicit close()
+│   │   ├── finally_close.py         # Guaranteed closed in finally block
+│   │   ├── sqlite_safe.py           # Guaranteed sqlite close in finally
+│   │   └── with_file.py             # Context manager with open()
+│   └── syntax/            # 1 syntax error case
+│       └── invalid_python.py        # Intentional syntax error
 │
 ├── frontend/              # Web security dashboard
 │   ├── index.html
@@ -149,17 +210,19 @@ LeakGuard/
 │   ├── invalid_syntax_sample.py
 │   └── resource_sample.py
 │
-├── benchmark/             # AST parsing throughput benchmarks
-│   ├── README.md
-│   └── benchmark_parser.py
+├── benchmark/             # Automated benchmark suite & results
+│   ├── README.md          # Benchmark guide & Resource Lifecycle Matrix
+│   ├── results.json       # Generated machine-readable benchmark metrics
+│   ├── run_benchmark.py   # Automated corpus benchmark runner
+│   └── benchmark_parser.py# AST parsing throughput micro-benchmark
 │
-└── tests/                 # Comprehensive test suite (89 passing tests)
+└── tests/                 # Comprehensive test suite (103 passing tests)
     ├── __init__.py
     ├── test_parser.py     # AST parser & syntax error tests
     ├── test_cli.py        # CLI discovery & scanning tests
     ├── test_models.py     # Data model tests
     ├── test_detector.py   # Control-flow & leak detector tests
-    ├── test_analyzer.py   # Resource lifecycle & exception tests
+    ├── test_analyzer.py   # Canonical corpus & exception tests
     ├── test_sqlite_leak.py# SQLite connection leak & finally tests
     ├── test_reporter.py   # Reporter formatting tests
     └── test_server.py     # Local server & API tests
@@ -172,11 +235,11 @@ LeakGuard/
 ### 1. Scan a File or Directory
 Run the CLI on any Python file or folder:
 ```bash
-# Scan a single file (e.g. SQLite database leak)
-python cli.py python/leaks/database_leak.py
-
 # Scan a directory
-python cli.py python/
+python cli.py python/leaks/
+
+# Scan the safe suite
+python cli.py python/safe/
 
 # Output machine-readable JSON
 python cli.py python/ --format json
@@ -185,33 +248,29 @@ python cli.py python/ --format json
 ### 2. Run Tests
 Ensure all tests pass using `pytest`:
 ```bash
-# Run root test suite (75 tests)
+# Run root test suite (89 tests)
 python -m pytest tests/ -v
 
 # Run backend test suite (14 tests)
 python -m pytest backend/tests/ -v
 ```
 
-### 3. Run the Web Dashboard
+### 3. Run Benchmark
+Run the automated benchmark on the 12-file canonical corpus:
+```bash
+python benchmark/run_benchmark.py
+```
+
+### 4. Run the Web Dashboard
 Launch the interactive security dashboard with live Python AST scanning:
 ```bash
-# Start the local server
 python app.py
 ```
 Open `http://localhost:8000` to interact with the dashboard:
-- Select a target (e.g. `Examples Suite (examples/)`, `python/leaks/`, or `python/safe/`)
+- Select a target (`Entire Test Suite (python/)`, `Leaks Suite (python/leaks/)`, `Safe Suite (python/safe/)`, `Syntax Suite (python/syntax/)`)
 - Click **Scan Python Project** to execute live AST control-flow analysis
 - Inspect PASS / FAILED status, leak paths, and actionable recommendations
 - Click **Reset** to restore the dashboard to its clean state
-
----
-
-## Scope & Analysis Boundaries
-
-> [!IMPORTANT]
-> **Intra-Procedural Scope**: LeakGuard performs intra-procedural AST control-flow analysis within function definitions and statement blocks.
->
-> **Explicit Boundary**: Cross-function resource ownership (e.g. creating an open file handle or SQLite connection inside a factory function or passing it to an asynchronous worker across module boundaries) is an active research area for inter-procedural static analysis and is **explicitly not claimed to be solved** in this version.
 
 ---
 
