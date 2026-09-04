@@ -1,0 +1,5 @@
+# LeakGuard - Python-only MVP Static Analyzer
+# Core analyzer has ZERO external runtime dependencies (Python standard library only).
+
+# Development and testing dependencies
+pytest>=7.0.0
