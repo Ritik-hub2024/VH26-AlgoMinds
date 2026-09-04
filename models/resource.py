@@ -18,6 +18,10 @@ class Resource:
     file_path: str = ""
     leak_path: Optional[str] = None
     is_context_manager: bool = False
+    classification: str = "LEAK"  # LEAK, UNKNOWN, SAFE
+    ownership_status: str = "LOCAL"  # LOCAL, TRANSFERRED, RETURNED, ATTRIBUTE, ALIAS, REASSIGNED
+    callee_name: Optional[str] = None
+    transfer_line: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert resource to dictionary."""
@@ -38,6 +42,10 @@ class Resource:
             "leak_path": self.leak_path,
             "path": self.leak_path,
             "is_context_manager": self.is_context_manager,
+            "classification": self.classification,
+            "ownership_status": self.ownership_status,
+            "callee_name": self.callee_name,
+            "transfer_line": self.transfer_line,
         }
 
     def __str__(self) -> str:

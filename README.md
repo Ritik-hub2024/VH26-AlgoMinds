@@ -64,25 +64,36 @@ The intra-procedural AST control-flow engine analyzes:
 - **Context Managers**: Recognition that `with` statements guarantee deterministic cleanup via `__exit__`.
 - **Syntax Error Isolation**: Non-compilable Python files are trapped gracefully with accurate line/column metadata without crashing the analyzer.
 
-### 3. Canonical Python Test Corpus (12 Cases)
-The project includes a 12-file canonical test corpus under `python/`:
+### 3. Canonical Python Test Corpus (21 Cases)
+The project includes a 21-file canonical test corpus under `python/`:
 
 ```
 python/
-├── leaks/                         # 6 Intentional Leak Cases
+├── leaks/                         # 8 Intentional Leak Cases
 │   ├── file_no_close.py           # Unclosed file handle in sequential code
 │   ├── early_return.py            # File open with early return in if branch
 │   ├── exception_leak.py          # File open with unclosed return in except
 │   ├── raise_leak.py              # File open with unhandled raise before close
 │   ├── sqlite_leak.py             # sqlite3.connect() unclosed in sequential code
-│   └── sqlite_early_return.py     # sqlite3.connect() with early return in if
+│   ├── sqlite_early_return.py     # sqlite3.connect() with early return in if
+│   ├── reassignment_leak.py       # Handle overwritten before previous resource closed
+│   └── alias_leak.py              # Resource aliased to secondary variable but neither closed
 │
-├── safe/                          # 5 Verified Safe Patterns
+├── safe/                          # 8 Verified Safe Patterns
 │   ├── explicit_close.py          # Sequential f.close() guaranteed
 │   ├── with_file.py               # Context manager with open(...) as f:
 │   ├── finally_close.py           # Guaranteed f.close() in finally:
 │   ├── exception_finally.py       # try / except with f.close() in finally:
-│   └── sqlite_safe.py             # Guaranteed conn.close() in finally:
+│   ├── sqlite_safe.py             # Guaranteed conn.close() in finally:
+│   ├── reassignment_safe.py       # Handle explicitly closed before reassignment
+│   ├── alias_safe.py              # Resource released by calling close() on local alias
+│   └── callee_closes_resource.py  # Intra-module callee proven to unconditionally close handle
+│
+├── unknown/                       # 4 Ambiguous Ownership Cases (Conservative Safety)
+│   ├── transfer_unknown.py        # Resource passed to external/unprovable function
+│   ├── return_unknown.py          # Resource handle returned to caller
+│   ├── attribute_unknown.py       # Resource stored in object attribute
+│   └── collection_unknown.py      # Resource appended into container
 │
 └── syntax/                        # 1 Syntax Error Case
     └── invalid_python.py          # Intentional syntax error for AST parser validation
@@ -96,16 +107,17 @@ python benchmark/run_benchmark.py
 python run.py benchmark
 ```
 
-The benchmark runs `AnalysisEngine` against all 12 test cases, compares actual findings against expected outcomes, calculates quality metrics, outputs a formatted terminal matrix, and writes machine-readable results to `benchmark/results.json`.
+The benchmark runs `AnalysisEngine` against all 21 test cases, compares actual findings against expected outcomes, calculates quality metrics, outputs a formatted terminal matrix, and writes machine-readable results to `benchmark/results.json`.
 
 ### 5. Observed FP / FN Results (Quality Metrics)
-Evaluated on the 12 canonical test corpus cases:
+Evaluated on the 21 canonical test corpus cases:
 
 | Metric | Observed Value | Description |
 | :--- | :--- | :--- |
-| **Total Test Cases** | **12** | 6 leaks, 5 safe, 1 syntax error |
-| **True Positives (TP)** | **6** | All 6 intentional leaks correctly flagged |
-| **True Negatives (TN)** | **5** | All 5 safe patterns verified with zero alerts |
+| **Total Test Cases** | **21** | 8 leaks, 8 safe, 4 unknown ownership, 1 syntax error |
+| **True Positives (TP)** | **8** | All 8 intentional leaks correctly flagged |
+| **True Negatives (TN)** | **8** | All 8 safe patterns verified with zero alerts |
+| **Unknown Positives** | **4** | All 4 ambiguous ownership cases conservatively classified as UNKNOWN |
 | **False Positives (FP)** | **0** | Zero spurious alerts on safe code |
 | **False Negatives (FN)** | **0** | Zero missed leaks |
 | **Syntax Errors (TP)** | **1** | Syntax error caught and reported cleanly |
@@ -115,12 +127,19 @@ Evaluated on the 12 canonical test corpus cases:
 | **Accuracy** | **100.0%** ($1.0$) | Overall classification accuracy |
 
 > [!NOTE]
-> **Corpus Benchmark Disclaimer**: This benchmark is self-created for the MVP hackathon corpus. Metrics reflect performance on the 12 included canonical test files under intra-procedural scope.
+> **Conservative Safety Guarantee**: LeakGuard never turns uncertainty into a false SAFE or false LEAK. When ownership escapes local function scope (via argument transfer, return statement, container storage, or object attribute assignment), it is honestly categorized as **UNKNOWN**. By default, `UNKNOWN` findings are advisory warnings and do not fail CI gates unless `--block-unknown` is explicitly enabled.
 
-### 6. Known Limitations
-- **Intra-Procedural Scope**: Analysis occurs within function and module statement blocks.
-- **Cross-Function Resource Ownership**: Resources allocated in factory functions, yielded from generators, or passed across inter-procedural boundaries are an active research frontier and are **explicitly not claimed to be solved** in this MVP.
-- **Dynamic Connection Pools**: ORM-managed connections (e.g. SQLAlchemy sessions, Django ORM connection pooling) operate via complex runtime wrappers and are outside the scope of raw `sqlite3.connect()` AST detection.
+### 6. Ownership Analysis Scope & Limitations
+
+LeakGuard tracks ownership conservatively without whole-program analysis:
+- **Reassignments (`f = open(); f = open()`)**: Reassigning a variable that holds an open resource is detected as an immediate leak (`REASSIGNED`).
+- **Local Aliases (`g = f; g.close()`)**: Transitive assignment creates an alias set. Closing any alias in the set marks the underlying resource as safely closed.
+- **Argument Transfers (`process(f)`)**: Passing an open resource into an external function marks the resource as `UNKNOWN (TRANSFERRED)` with callee name and line metadata.
+- **Intra-Module Callee Proof**: When a function in the same module is called, LeakGuard analyzes the callee AST. If and only if the callee unconditionally closes the parameter on all execution paths without reassigning or returning it, the caller site is proven `SAFE`.
+- **Returned Resources (`return f`)**: Returning an open resource transfers lifecycle responsibility to the caller, classified as `UNKNOWN (RETURNED)`. In contrast, returning read data (`return f.read()`) is recognized as a genuine leak (`LEAK`).
+- **Object Attributes (`self.file = open()`)**: Storing a resource on an object instance escapes method scope, classified as `UNKNOWN (ATTRIBUTE)`.
+- **Container Escapes (`pool.append(f)`)**: Storing a handle into a list, set, or dictionary escapes local tracking, classified as `UNKNOWN (CONTAINER)`.
+- **Explicit Limitations**: LeakGuard does not perform cross-package whole-program analysis, dynamic type inference, or runtime heap tracing.
 
 ---
 

@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from .location import SourceLocation
 
 
@@ -32,6 +32,11 @@ class LeakIssue:
     function_name: str = ""
     variable: str = ""
     cleanup_status: str = "UNCLOSED"
+    classification: str = "LEAK"  # LEAK, UNKNOWN, SAFE
+    ownership_status: str = "LOCAL"  # LOCAL, TRANSFERRED, RETURNED, ATTRIBUTE, ALIAS, REASSIGNED
+    callee_name: str = ""
+    transfer_line: Optional[int] = None
+    scope_limitation: str = ""
 
     def __post_init__(self) -> None:
         if not self.problem:
@@ -40,6 +45,8 @@ class LeakIssue:
             self.variable = self.resource_name
         elif not self.resource_name and self.variable:
             self.resource_name = self.variable
+        if self.classification == "UNKNOWN" and not self.scope_limitation:
+            self.scope_limitation = "LeakGuard currently performs limited interprocedural reasoning."
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert issue to serializable dictionary."""
@@ -63,5 +70,10 @@ class LeakIssue:
             "cleanup_status": self.cleanup_status,
             "recommendation": self.recommendation,
             "function_name": self.function_name,
+            "classification": self.classification,
+            "ownership_status": self.ownership_status,
+            "callee_name": self.callee_name,
+            "transfer_line": self.transfer_line,
+            "scope_limitation": self.scope_limitation,
         }
 

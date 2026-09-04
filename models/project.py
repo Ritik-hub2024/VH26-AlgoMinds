@@ -102,6 +102,11 @@ class FindingRecord:
     recommendation: str
     cleanup_status: str = "UNCLOSED"
     is_baseline: bool = False
+    classification: str = "LEAK"
+    ownership_status: str = "LOCAL"
+    callee_name: Optional[str] = None
+    transfer_line: Optional[int] = None
+    scope_limitation: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -118,6 +123,11 @@ class FindingRecord:
             "recommendation": self.recommendation,
             "cleanup_status": self.cleanup_status,
             "is_baseline": self.is_baseline,
+            "classification": self.classification,
+            "ownership_status": self.ownership_status,
+            "callee_name": self.callee_name,
+            "transfer_line": self.transfer_line,
+            "scope_limitation": self.scope_limitation,
         }
 
 

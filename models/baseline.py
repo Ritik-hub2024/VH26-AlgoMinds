@@ -129,6 +129,7 @@ class DifferentialReport:
     baseline_issues: List[LeakIssue] = field(default_factory=list)
     blocking_issues: List[LeakIssue] = field(default_factory=list)
     warning_issues: List[LeakIssue] = field(default_factory=list)
+    unknown_issues: List[LeakIssue] = field(default_factory=list)
 
     @classmethod
     def create(
@@ -153,14 +154,18 @@ class DifferentialReport:
         baseline_issues: List[LeakIssue] = []
         blocking_issues: List[LeakIssue] = []
         warning_issues: List[LeakIssue] = []
+        unknown_issues: List[LeakIssue] = []
 
         for issue in report.issues:
             fp = compute_finding_fingerprint(issue, base_dir=effective_base)
+            if getattr(issue, "classification", "LEAK") == "UNKNOWN":
+                unknown_issues.append(issue)
+
             if has_baseline and fp in baseline_fps:
                 baseline_issues.append(issue)
             else:
                 new_issues.append(issue)
-                if active_policy.is_blocking(issue.severity):
+                if active_policy.is_issue_blocking(issue):
                     blocking_issues.append(issue)
                 else:
                     warning_issues.append(issue)
@@ -174,6 +179,7 @@ class DifferentialReport:
             baseline_issues=baseline_issues,
             blocking_issues=blocking_issues,
             warning_issues=warning_issues,
+            unknown_issues=unknown_issues,
         )
 
     @property

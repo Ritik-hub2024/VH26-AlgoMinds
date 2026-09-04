@@ -158,6 +158,11 @@ class Database:
                     recommendation TEXT NOT NULL,
                     cleanup_status TEXT NOT NULL,
                     is_baseline INTEGER NOT NULL DEFAULT 0,
+                    classification TEXT NOT NULL DEFAULT 'LEAK',
+                    ownership_status TEXT NOT NULL DEFAULT 'LOCAL',
+                    callee_name TEXT,
+                    transfer_line INTEGER,
+                    scope_limitation TEXT,
                     FOREIGN KEY (scan_id) REFERENCES scans (scan_id) ON DELETE CASCADE
                 );
 
@@ -194,6 +199,16 @@ class Database:
             findings_columns = [row["name"] for row in cur.fetchall()]
             if "is_baseline" not in findings_columns:
                 cur.execute("ALTER TABLE findings ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0")
+            if "classification" not in findings_columns:
+                cur.execute("ALTER TABLE findings ADD COLUMN classification TEXT NOT NULL DEFAULT 'LEAK'")
+            if "ownership_status" not in findings_columns:
+                cur.execute("ALTER TABLE findings ADD COLUMN ownership_status TEXT NOT NULL DEFAULT 'LOCAL'")
+            if "callee_name" not in findings_columns:
+                cur.execute("ALTER TABLE findings ADD COLUMN callee_name TEXT")
+            if "transfer_line" not in findings_columns:
+                cur.execute("ALTER TABLE findings ADD COLUMN transfer_line INTEGER")
+            if "scope_limitation" not in findings_columns:
+                cur.execute("ALTER TABLE findings ADD COLUMN scope_limitation TEXT")
 
             cur.execute("PRAGMA table_info(projects)")
             project_columns = [row["name"] for row in cur.fetchall()]
@@ -321,6 +336,11 @@ class Database:
                     recommendation=str(item.get("recommendation", "")),
                     cleanup_status=str(item.get("cleanup_status", "UNCLOSED")),
                     is_baseline=bool(item.get("is_baseline", False)),
+                    classification=str(item.get("classification", "LEAK")),
+                    ownership_status=str(item.get("ownership_status", "LOCAL")),
+                    callee_name=item.get("callee_name"),
+                    transfer_line=item.get("transfer_line"),
+                    scope_limitation=item.get("scope_limitation"),
                 )
                 findings_to_insert.append(fnd)
         else:
@@ -339,6 +359,11 @@ class Database:
                     recommendation=issue.recommendation or "",
                     cleanup_status="UNCLOSED",
                     is_baseline=bool(getattr(issue, "is_baseline", False)),
+                    classification=getattr(issue, "classification", "LEAK"),
+                    ownership_status=getattr(issue, "ownership_status", "LOCAL"),
+                    callee_name=getattr(issue, "callee_name", None),
+                    transfer_line=getattr(issue, "transfer_line", None),
+                    scope_limitation=getattr(issue, "scope_limitation", None),
                 )
                 findings_to_insert.append(fnd)
 
@@ -398,9 +423,9 @@ class Database:
                     INSERT INTO findings (
                         finding_id, scan_id, file, line, column, resource,
                         variable, severity, reason, leak_path, recommendation, cleanup_status,
-                        is_baseline
+                        is_baseline, classification, ownership_status, callee_name, transfer_line, scope_limitation
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f.finding_id,
@@ -416,6 +441,11 @@ class Database:
                         f.recommendation,
                         f.cleanup_status,
                         1 if f.is_baseline else 0,
+                        f.classification,
+                        f.ownership_status,
+                        f.callee_name,
+                        f.transfer_line,
+                        f.scope_limitation,
                     ),
                 )
 
@@ -530,6 +560,11 @@ class Database:
                 recommendation=str(item.get("recommendation", "")),
                 cleanup_status=str(item.get("cleanup_status", "UNCLOSED")),
                 is_baseline=bool(item.get("is_baseline", False)),
+                classification=str(item.get("classification", "LEAK")),
+                ownership_status=str(item.get("ownership_status", "LOCAL")),
+                callee_name=item.get("callee_name"),
+                transfer_line=item.get("transfer_line"),
+                scope_limitation=item.get("scope_limitation"),
             )
             findings_to_insert.append(fnd)
 
@@ -574,9 +609,9 @@ class Database:
                     INSERT INTO findings (
                         finding_id, scan_id, file, line, column, resource,
                         variable, severity, reason, leak_path, recommendation, cleanup_status,
-                        is_baseline
+                        is_baseline, classification, ownership_status, callee_name, transfer_line, scope_limitation
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f.finding_id,
@@ -592,6 +627,11 @@ class Database:
                         f.recommendation,
                         f.cleanup_status,
                         1 if f.is_baseline else 0,
+                        f.classification,
+                        f.ownership_status,
+                        f.callee_name,
+                        f.transfer_line,
+                        f.scope_limitation,
                     ),
                 )
 

@@ -261,12 +261,17 @@ document.addEventListener('DOMContentLoaded', () => {
           const severity = (finding.severity || 'HIGH').toUpperCase();
           const severityClass = severity === 'HIGH' ? 'severity-high' : (severity === 'MEDIUM' ? 'severity-medium' : 'severity-low');
           const badgeClass = severity === 'HIGH' ? 'badge-severity-high' : (severity === 'MEDIUM' ? 'badge-severity-medium' : 'badge-severity-low');
+          const isUnknown = (finding.classification || '').toUpperCase() === 'UNKNOWN';
+          const unknownBadge = isUnknown
+            ? `<span class="badge badge-classification-unknown">🟡 UNKNOWN (${escapeHtml(finding.ownership_status || 'TRANSFERRED')})</span>`
+            : '';
 
           return `
             <article class="finding-card ${severityClass}" tabindex="0">
               <div class="finding-header">
                 <div class="finding-title-group">
                   <span class="badge ${badgeClass}">${escapeHtml(severity)}</span>
+                  ${unknownBadge}
                   <div class="finding-file-info">
                     <span class="finding-file-path">${escapeHtml(finding.file)}</span>
                     <span class="finding-line-badge">Line ${escapeHtml(String(finding.line))}</span>
@@ -279,6 +284,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="finding-section-label">Reason:</div>
                 <div class="finding-reason-text">${escapeHtml(finding.reason || finding.problem)}</div>
               </div>
+
+              ${finding.scope_limitation ? `
+                <div class="finding-section">
+                  <div class="finding-section-label">Scope Limitation:</div>
+                  <div class="finding-scope-limitation">ℹ️ ${escapeHtml(finding.scope_limitation)}</div>
+                </div>
+              ` : ''}
 
               ${(finding.leak_path || finding.path) ? `
                 <div class="finding-section">
@@ -862,15 +874,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const resource = f.resource || f.resource_type || 'Resource';
             const reason = f.reason || f.message || f.problem || 'Resource leak detected';
             const isBaseline = Boolean(f.is_baseline);
+            const isUnknown = (f.classification || '').toUpperCase() === 'UNKNOWN';
+            const unknownBadge = isUnknown
+              ? `<span class="badge badge-classification-unknown">🟡 UNKNOWN (${escapeHtml(f.ownership_status || 'TRANSFERRED')})</span>`
+              : '';
             const baselineBadge = isBaseline
               ? '<span class="badge badge-baseline-tolerated">BASELINE (TOLERATED)</span>'
-              : '<span class="badge badge-new-leak">NEW LEAK (BLOCKING)</span>';
+              : (isUnknown ? '' : '<span class="badge badge-new-leak">NEW LEAK (BLOCKING)</span>');
 
             return `
               <article class="finding-card severity-high" tabindex="0">
                 <div class="finding-header">
                   <div class="finding-title-group">
                     <span class="badge ${badgeClass}">${escapeHtml(severity)}</span>
+                    ${unknownBadge}
                     ${baselineBadge}
                     <div class="finding-file-info">
                       <span class="finding-file-path">${escapeHtml(filePath)}</span>
@@ -883,6 +900,12 @@ document.addEventListener('DOMContentLoaded', () => {
                   <div class="finding-section-label">Reason:</div>
                   <div class="finding-reason-text">${escapeHtml(reason)}</div>
                 </div>
+                ${f.scope_limitation ? `
+                  <div class="finding-section">
+                    <div class="finding-section-label">Scope Limitation:</div>
+                    <div class="finding-scope-limitation">ℹ️ ${escapeHtml(f.scope_limitation)}</div>
+                  </div>
+                ` : ''}
                 ${f.leak_path ? `
                   <div class="finding-section">
                     <div class="finding-section-label">Leak Path:</div>

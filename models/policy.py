@@ -31,7 +31,11 @@ _BLOCK_LEVEL_THRESHOLDS: Dict[BlockLevel, int] = {
 class SecurityPolicy:
     """Configurable security policy determining which severity levels fail a PR."""
 
-    def __init__(self, block_level: Union[BlockLevel, str] = BlockLevel.HIGH) -> None:
+    def __init__(
+        self,
+        block_level: Union[BlockLevel, str] = BlockLevel.HIGH,
+        block_unknown: bool = False,
+    ) -> None:
         if isinstance(block_level, str):
             clean_str = block_level.strip().upper()
             try:
@@ -43,6 +47,7 @@ class SecurityPolicy:
                 )
         else:
             self.block_level = block_level
+        self.block_unknown = block_unknown
 
     @property
     def threshold(self) -> int:
@@ -57,6 +62,12 @@ class SecurityPolicy:
         """Return True if the issue severity meets or exceeds the blocking threshold."""
         return self._get_severity_score(severity) >= self.threshold
 
+    def is_issue_blocking(self, issue: Any) -> bool:
+        """Determine if an issue blocks based on classification and severity."""
+        if getattr(issue, "classification", "LEAK") == "UNKNOWN":
+            return self.block_unknown
+        return self.is_blocking(getattr(issue, "severity", Severity.HIGH))
+
     def is_warning(self, severity: Union[Severity, str]) -> bool:
         """Return True if the issue does not block but should be flagged as a warning."""
         return not self.is_blocking(severity)
@@ -66,7 +77,9 @@ class SecurityPolicy:
         return {
             "block_level": self.block_level.value,
             "threshold": self.threshold,
+            "block_unknown": self.block_unknown,
         }
 
     def __repr__(self) -> str:
-        return f"SecurityPolicy(block_level={self.block_level.value})"
+        bu_str = ", block_unknown=True" if self.block_unknown else ""
+        return f"SecurityPolicy(block_level={self.block_level.value}{bu_str})"

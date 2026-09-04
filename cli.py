@@ -62,6 +62,7 @@ def discover_python_files(target_path: Path) -> List[Path]:
 def scan_target(
     target_str: str,
     engine: Optional[AnalysisEngine] = None,
+    block_unknown: bool = False,
 ) -> AnalysisReport:
     """Scan a file or directory using the AST parser and registered analyzer rules.
 
@@ -69,7 +70,7 @@ def scan_target(
     """
     start_time = time.perf_counter()
     target_path = Path(target_str).resolve()
-    report = AnalysisReport(target_path=str(target_path))
+    report = AnalysisReport(target_path=str(target_path), block_unknown=block_unknown)
 
     if not target_path.exists():
         report.parse_results.append(
@@ -160,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Security policy blocking severity threshold (default: HIGH).",
     )
     parser.add_argument(
+        "--block-unknown",
+        action="store_true",
+        help="Treat UNKNOWN resource ownership findings as blocking (exit code 1). Default is advisory/warning only.",
+    )
+    parser.add_argument(
         "--no-color",
         action="store_true",
         help="Disable ANSI colors in console output.",
@@ -238,10 +244,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     # Perform AST scanning
-    report = scan_target(str(target_path))
+    report = scan_target(str(target_path), block_unknown=args.block_unknown)
 
     # Build security policy and differential report
-    policy = SecurityPolicy(block_level=args.policy.upper() if args.policy else "HIGH")
+    policy = SecurityPolicy(
+        block_level=args.policy.upper() if args.policy else "HIGH",
+        block_unknown=args.block_unknown,
+    )
     diff_report = DifferentialReport.create(
         report=report,
         baseline_source=args.baseline,
@@ -357,6 +366,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "leak_path": issue.leak_path or "",
             "recommendation": issue.recommendation or "",
             "cleanup_status": "UNCLOSED",
+            "classification": getattr(issue, "classification", "LEAK"),
+            "ownership_status": getattr(issue, "ownership_status", "LOCAL"),
+            "callee_name": getattr(issue, "callee_name", None),
+            "transfer_line": getattr(issue, "transfer_line", None),
+            "scope_limitation": getattr(issue, "scope_limitation", None),
             "is_baseline": is_bl,
             "fingerprint": fp,
         })
@@ -412,6 +426,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "clean_files": report.clean_files_count,
                     "syntax_errors": len(report.syntax_errors),
                     "total_leaks": len(report.issues),
+                    "unknown_ownership": len(report.unknown_issues),
                     "new_leaks": new_leaks_count,
                     "baseline_leaks": baseline_leaks_count,
                     "duration_ms": round(report.duration_seconds * 1000, 2),

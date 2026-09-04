@@ -43,20 +43,26 @@ class MarkdownReporter:
             f"- **Total Leaks:** {len(base_report.issues)}",
             f"- **New Leaks:** {len(diff.new_issues)}",
             f"- **Existing / Baseline Leaks:** {len(diff.baseline_issues)}",
+        ]
+        unknown_count = len(getattr(base_report, "unknown_issues", []))
+        if unknown_count > 0:
+            lines.append(f"- **Ambiguous Ownership (UNKNOWN):** {unknown_count} (advisory)")
+        lines.extend([
             f"- **Duration:** {base_report.duration_seconds:.4f}s",
             f"- **Security Policy:** `{policy_desc}`",
             "",
-        ]
+        ])
 
-        # 1. New Findings Section (Blocking and Warnings)
-        if diff.new_issues:
+        # 1. New Findings Section (Blocking and Warnings - Definite Leaks)
+        definite_new_leaks = [i for i in diff.new_issues if getattr(i, "classification", "LEAK") != "UNKNOWN"]
+        if definite_new_leaks:
             lines.extend([
                 "### 🚨 NEW FINDINGS / Detected Resource Leaks",
                 "",
                 "| Gate Impact | Severity | File:Line | Resource | Leak Path | Recommendation |",
                 "| :---: | :---: | :--- | :--- | :--- | :--- |",
             ])
-            for issue in diff.new_issues:
+            for issue in definite_new_leaks:
                 is_block = diff.policy.is_blocking(issue.severity)
                 impact_badge = "❌ **BLOCKING**" if is_block else "⚠️ **WARNING**"
                 sev = getattr(issue.severity, "value", str(issue.severity))
@@ -65,6 +71,28 @@ class MarkdownReporter:
                 loc = f"`{issue.location.file_path}:{issue.location.line}`"
                 rec = issue.recommendation or "-"
                 lines.append(f"| {impact_badge} | **{sev}** | {loc} | `{res}` | `{leak_path}` | {rec} |")
+            lines.append("")
+
+        # 1.5 Ambiguous Ownership Section (UNKNOWN)
+        unknown_new = [i for i in diff.new_issues if getattr(i, "classification", "LEAK") == "UNKNOWN"]
+        if unknown_new:
+            lines.extend([
+                "### 🟡 AMBIGUOUS OWNERSHIP / ESCAPED RESOURCES (UNKNOWN)",
+                "",
+                "> [!NOTE]",
+                "> LeakGuard detected resources whose ownership escaped local scope (argument transfer, return, container escape, or attribute assignment). Conservative analysis classifies these as **UNKNOWN** rather than guessing safe or leak.",
+                "",
+                "| Status | Ownership Transfer | File:Line | Resource | Callee / Target | Scope Limitation |",
+                "| :---: | :---: | :--- | :--- | :--- | :--- |",
+            ])
+            for issue in unknown_new:
+                status_badge = "❌ **BLOCKING**" if diff.policy.block_unknown else "🟡 **UNKNOWN**"
+                transfer_type = getattr(issue, "ownership_status", "TRANSFERRED")
+                loc = f"`{issue.location.file_path}:{issue.location.line}`"
+                res = f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else issue.resource_type
+                callee = f"`{issue.callee_name}()`" if getattr(issue, "callee_name", None) else "-"
+                limit = getattr(issue, "scope_limitation", "-") or "-"
+                lines.append(f"| {status_badge} | `{transfer_type}` | {loc} | `{res}` | {callee} | {limit} |")
             lines.append("")
 
         # 2. Existing / Baseline Findings Section (Informational & Non-Blocking)
@@ -109,13 +137,14 @@ class MarkdownReporter:
         elif diff.blocking_issues:
             lines.extend([
                 "> [!CAUTION]",
-                f"> ❌ **PR BLOCKED**: {len(diff.blocking_issues)} new blocking resource leak(s) introduced in this PR. Clean up resources or handle exception paths.",
+                f"> ❌ **PR BLOCKED**: {len(diff.blocking_issues)} new blocking resource issue(s) detected. Clean up resources or resolve blocking ownership transfers.",
                 "",
             ])
-        elif diff.warning_issues:
+        elif diff.warning_issues or (diff.unknown_issues and not diff.policy.block_unknown):
+            total_warn = len(diff.warning_issues) + len(diff.unknown_issues)
             lines.extend([
                 "> [!WARNING]",
-                f"> ⚠️ **PR PASSED WITH WARNINGS**: {len(diff.warning_issues)} non-blocking issue(s) detected below the `{diff.policy.block_level.value}` blocking threshold.",
+                f"> ⚠️ **PR PASSED WITH WARNINGS**: {total_warn} non-blocking issue(s) / ambiguous ownership warnings detected.",
                 "",
             ])
         elif diff.has_baseline and diff.baseline_issues:

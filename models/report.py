@@ -63,20 +63,33 @@ class AnalysisReport:
     issues: List[LeakIssue] = field(default_factory=list)
     syntax_errors: List[SyntaxErrorInfo] = field(default_factory=list)
     duration_seconds: float = 0.0
+    block_unknown: bool = False
+
+    @property
+    def blocking_issues(self) -> List[LeakIssue]:
+        """Issues that meet the blocking criteria (by default, classification == 'LEAK')."""
+        if self.block_unknown:
+            return list(self.issues)
+        return [i for i in self.issues if getattr(i, "classification", "LEAK") != "UNKNOWN"]
+
+    @property
+    def unknown_issues(self) -> List[LeakIssue]:
+        """Issues categorized as UNKNOWN ownership."""
+        return [i for i in self.issues if getattr(i, "classification", "LEAK") == "UNKNOWN"]
 
     @property
     def clean_files_count(self) -> int:
-        """Count of files that parsed successfully and have no issues."""
+        """Count of files that parsed successfully and have no blocking issues."""
         failed_files = {e.filename for e in self.syntax_errors}
         failed_files.update({res.file_path for res in self.parse_results if not res.success})
-        issue_files = {issue.location.file_path for issue in self.issues}
+        issue_files = {issue.location.file_path for issue in self.blocking_issues}
         problem_files = failed_files.union(issue_files)
         return max(0, self.files_scanned - len(problem_files))
 
     @property
     def has_errors_or_issues(self) -> bool:
-        """True if any syntax errors, read failures, or issues exist."""
-        return bool(self.syntax_errors or self.issues or any(not r.success for r in self.parse_results))
+        """True if any syntax errors, read failures, or blocking issues exist."""
+        return bool(self.syntax_errors or self.blocking_issues or any(not r.success for r in self.parse_results))
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize report to structured JSON-compatible dictionary."""
@@ -88,6 +101,8 @@ class AnalysisReport:
                 "clean_files": self.clean_files_count,
                 "syntax_errors_count": len(self.syntax_errors),
                 "issues_count": len(self.issues),
+                "definite_leaks_count": len(self.blocking_issues),
+                "unknown_ownership_count": len(self.unknown_issues),
                 "duration_seconds": round(self.duration_seconds, 4),
             },
             "syntax_errors": [err.to_dict() for err in self.syntax_errors],

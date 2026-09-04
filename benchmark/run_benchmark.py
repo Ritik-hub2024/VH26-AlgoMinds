@@ -81,7 +81,22 @@ CANONICAL_CORPUS: List[CorpusTestCase] = [
         expected_status="LEAK",
         description="sqlite3.connect() with early return in if branch",
     ),
-    # 5 Safe Patterns
+    # Additional Step 8 Ownership Leaks
+    CorpusTestCase(
+        rel_path="python/leaks/reassignment_leak.py",
+        category="leak",
+        resource_type="file",
+        expected_status="LEAK",
+        description="Handle overwritten before previous resource was closed",
+    ),
+    CorpusTestCase(
+        rel_path="python/leaks/alias_leak.py",
+        category="leak",
+        resource_type="file",
+        expected_status="LEAK",
+        description="Resource aliased to secondary variable but neither closed",
+    ),
+    # 5 Safe Patterns + Step 8 Safe Ownership Patterns
     CorpusTestCase(
         rel_path="python/safe/explicit_close.py",
         category="safe",
@@ -117,6 +132,56 @@ CANONICAL_CORPUS: List[CorpusTestCase] = [
         expected_status="SAFE",
         description="sqlite3.connect() with guaranteed conn.close() in finally:",
     ),
+    CorpusTestCase(
+        rel_path="python/safe/reassignment_safe.py",
+        category="safe",
+        resource_type="file",
+        expected_status="SAFE",
+        description="Handle explicitly closed before reassignment",
+    ),
+    CorpusTestCase(
+        rel_path="python/safe/alias_safe.py",
+        category="safe",
+        resource_type="file",
+        expected_status="SAFE",
+        description="Resource released by calling close() on local alias",
+    ),
+    CorpusTestCase(
+        rel_path="python/safe/callee_closes_resource.py",
+        category="safe",
+        resource_type="file",
+        expected_status="SAFE",
+        description="Resource passed to intra-module callee proven to unconditionally close it",
+    ),
+    # 4 Ambiguous Ownership Cases (UNKNOWN)
+    CorpusTestCase(
+        rel_path="python/unknown/transfer_unknown.py",
+        category="unknown",
+        resource_type="file",
+        expected_status="UNKNOWN",
+        description="Resource passed to external/unprovable function",
+    ),
+    CorpusTestCase(
+        rel_path="python/unknown/return_unknown.py",
+        category="unknown",
+        resource_type="file",
+        expected_status="UNKNOWN",
+        description="Resource handle returned to caller",
+    ),
+    CorpusTestCase(
+        rel_path="python/unknown/attribute_unknown.py",
+        category="unknown",
+        resource_type="file",
+        expected_status="UNKNOWN",
+        description="Resource stored in object attribute",
+    ),
+    CorpusTestCase(
+        rel_path="python/unknown/collection_unknown.py",
+        category="unknown",
+        resource_type="file",
+        expected_status="UNKNOWN",
+        description="Resource appended into collection container",
+    ),
     # 1 Syntax Error
     CorpusTestCase(
         rel_path="python/syntax/invalid_python.py",
@@ -141,8 +206,10 @@ def run_benchmark(
 
     tp = 0  # Expected LEAK, Actual LEAK
     fp = 0  # Expected SAFE or SYNTAX, Actual LEAK
-    fn = 0  # Expected LEAK, Actual SAFE
+    fn = 0  # Expected LEAK, Actual SAFE or UNKNOWN
     tn = 0  # Expected SAFE, Actual SAFE
+    unknown_tp = 0  # Expected UNKNOWN, Actual UNKNOWN
+    unknown_fp = 0  # Expected SAFE/LEAK, Actual UNKNOWN
     syntax_tp = 0  # Expected SYNTAX_ERROR, Actual SYNTAX_ERROR
     syntax_fn = 0  # Expected SYNTAX_ERROR, Actual parsed successfully
 
@@ -158,8 +225,10 @@ def run_benchmark(
         # Determine actual status
         if not parse_res.success:
             actual_status = "SYNTAX_ERROR"
-        elif len(issues) > 0:
+        elif any(getattr(i, "classification", "LEAK") == "LEAK" for i in issues):
             actual_status = "LEAK"
+        elif any(getattr(i, "classification", "LEAK") == "UNKNOWN" for i in issues):
+            actual_status = "UNKNOWN"
         else:
             actual_status = "SAFE"
 
@@ -176,6 +245,11 @@ def run_benchmark(
                 tn += 1
             else:
                 fp += 1
+        elif test_case.category == "unknown":
+            if actual_status == "UNKNOWN":
+                unknown_tp += 1
+            else:
+                unknown_fp += 1
         elif test_case.category == "syntax":
             if actual_status == "SYNTAX_ERROR":
                 syntax_tp += 1
@@ -226,25 +300,28 @@ def run_benchmark(
     results_data: Dict[str, Any] = {
         "benchmark_metadata": {
             "title": "LeakGuard Python Test Corpus Benchmark",
-            "version": "Round 2 Final Jury Version",
-            "scope": "Intra-procedural AST Resource Lifecycle Analysis",
+            "version": "Round 2 Final Jury Version (Step 8 Ownership)",
+            "scope": "Intra-procedural AST Resource Lifecycle & Ownership Analysis",
             "engine": "Pure Python AST (built-in ast module)",
-            "benchmark_scope": "MVP Canonical Test Corpus (12 cases)",
+            "benchmark_scope": f"Canonical Test Corpus ({len(CANONICAL_CORPUS)} cases)",
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
             "duration_seconds": round(elapsed_time, 4),
         },
         "summary": {
             "total_cases": len(CANONICAL_CORPUS),
-            "expected_leaks": 6,
+            "expected_leaks": 8,
             "detected_leaks": tp,
-            "expected_safe": 5,
+            "expected_safe": 8,
             "correct_safe": tn,
+            "expected_unknown": 4,
+            "correct_unknown": unknown_tp,
             "syntax_cases": 1,
             "correct_syntax": syntax_tp,
             "true_positives": tp,
             "false_positives": fp,
             "false_negatives": fn,
             "true_negatives": tn,
+            "unknown_positives": unknown_tp,
             "precision": round(precision, 4),
             "recall": round(recall, 4),
             "f1_score": round(f1_score, 4),
@@ -255,6 +332,7 @@ def run_benchmark(
             "false_positives": "Expected SAFE incorrectly identified as LEAK",
             "false_negatives": "Expected LEAK incorrectly marked as SAFE",
             "true_negatives": "Expected SAFE correctly verified as SAFE",
+            "unknown_positives": "Expected UNKNOWN correctly identified as ambiguous ownership",
             "precision": "TP / (TP + FP) — fraction of reported leaks that are genuine leaks",
             "recall": "TP / (TP + FN) — fraction of all actual leaks that were detected",
             "f1_score": "Harmonic mean of precision and recall",
@@ -262,8 +340,8 @@ def run_benchmark(
         },
         "disclaimer": (
             "This benchmark is self-created for the MVP hackathon corpus. "
-            "Metrics reflect performance on the 12 included canonical test files. "
-            "Cross-function resource ownership is an explicit limitation."
+            f"Metrics reflect performance on the {len(CANONICAL_CORPUS)} included canonical test files. "
+            "Conservative ownership tracking identifies escaped resources as UNKNOWN rather than assuming SAFE or LEAK."
         ),
         "cases": case_results,
     }

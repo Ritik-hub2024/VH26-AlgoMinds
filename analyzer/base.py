@@ -49,6 +49,11 @@ class BaseRule(ast.NodeVisitor, ABC):
         problem: str = "",
         leak_path: str = "",
         function_name: str = "",
+        classification: str = "LEAK",
+        ownership_status: str = "LOCAL",
+        callee_name: str = "",
+        transfer_line: Optional[int] = None,
+        scope_limitation: str = "",
     ) -> None:
         """Record an actionable issue detected at the given AST node."""
         issue = LeakIssue(
@@ -62,6 +67,11 @@ class BaseRule(ast.NodeVisitor, ABC):
             problem=problem or message,
             leak_path=leak_path,
             function_name=function_name,
+            classification=classification,
+            ownership_status=ownership_status,
+            callee_name=callee_name,
+            transfer_line=transfer_line,
+            scope_limitation=scope_limitation,
         )
         self.issues.append(issue)
 

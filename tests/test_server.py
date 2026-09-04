@@ -49,10 +49,10 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "FAILED")
-        self.assertEqual(data["files_scanned"], 6)
+        self.assertEqual(data["files_scanned"], 8)
         self.assertEqual(data["clean_files"], 0)
-        self.assertEqual(data["leaks_detected"], 6)
-        self.assertEqual(len(data["findings"]), 6)
+        self.assertEqual(data["leaks_detected"], 8)
+        self.assertEqual(len(data["findings"]), 8)
 
     def test_handle_api_scan_safe_suite(self):
         """Scanning python/safe should return PASS with zero leaks and clean file inventory."""
@@ -60,8 +60,8 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "PASS")
-        self.assertEqual(data["files_scanned"], 5)
-        self.assertEqual(data["clean_files"], 5)
+        self.assertEqual(data["files_scanned"], 8)
+        self.assertEqual(data["clean_files"], 8)
         self.assertEqual(data["leaks_detected"], 0)
         self.assertEqual(len(data["findings"]), 0)
         for file_item in data["files"]:
@@ -172,7 +172,7 @@ class TestServerHandler(unittest.TestCase):
         self.handler._handle_api_scan("target=python/leaks")
         data2 = self._get_response_data()
         self.assertEqual(data2["status"], "FAILED")
-        self.assertEqual(data2["leaks_detected"], 6)
+        self.assertEqual(data2["leaks_detected"], 8)
 
 
 if __name__ == "__main__":
