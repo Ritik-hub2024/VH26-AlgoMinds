@@ -30,13 +30,20 @@ class LeakIssue:
     problem: str = ""
     leak_path: str = ""
     function_name: str = ""
+    variable: str = ""
+    cleanup_status: str = "UNCLOSED"
 
     def __post_init__(self) -> None:
         if not self.problem:
             self.problem = self.message
+        if not self.variable and self.resource_name:
+            self.variable = self.resource_name
+        elif not self.resource_name and self.variable:
+            self.resource_name = self.variable
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert issue to serializable dictionary."""
+        var_name = self.variable or self.resource_name
         return {
             "rule_id": self.rule_id,
             "message": self.message,
@@ -44,11 +51,17 @@ class LeakIssue:
             "location": self.location.to_dict(),
             "file": self.location.file_path,
             "line": self.location.line,
-            "resource": f"{self.resource_name} ({self.resource_type})" if self.resource_name else self.resource_type,
-            "resource_name": self.resource_name,
+            "opened_line": self.location.line,
+            "resource": f"{var_name} ({self.resource_type})" if var_name else self.resource_type,
+            "resource_name": var_name,
+            "variable": var_name,
             "resource_type": self.resource_type,
             "problem": self.problem,
+            "reason": self.problem,
             "leak_path": self.leak_path,
+            "path": self.leak_path,
+            "cleanup_status": self.cleanup_status,
             "recommendation": self.recommendation,
             "function_name": self.function_name,
         }
+

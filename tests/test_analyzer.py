@@ -169,6 +169,173 @@ def load_data():
         assert resources[0].status == "SAFE"
         assert len(rule.issues) == 0
 
+    # 9. nested / combined case: nested try-finally safe
+    def test_09_nested_try_finally_safe(self, parser, rule):
+        code = """
+def load_data():
+    f = open("data.txt")
+    try:
+        try:
+            risky_operation()
+        finally:
+            f.close()
+    except Exception:
+        handle_error()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(rule.issues) == 0
+
+    # 10. nested / combined case: nested try exception return leak
+    def test_10_nested_exception_return_leak(self, parser, rule):
+        code = """
+def load_data():
+    f = open("data.txt")
+    try:
+        try:
+            risky_operation()
+        except ValueError:
+            return None
+    except Exception:
+        pass
+    f.close()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert len(rule.issues) == 1
+        assert "return (leak)" in rule.issues[0].leak_path
+
+    # 11. nested / combined case: branching inside try with finally cleanup safe
+    def test_11_combined_branching_in_try_finally_safe(self, parser, rule):
+        code = """
+def load_data(flag):
+    f = open("data.txt")
+    try:
+        if flag:
+            return "early"
+        return f.read()
+    finally:
+        f.close()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(rule.issues) == 0
+
+    # 12. Exact snippets verification for Cases A, B, C, D, E from milestone prompt
+    def test_12_exact_milestone_cases_a_through_e(self, parser):
+        # CASE A — MUST REPORT LEAK
+        case_a = """
+def load():
+    f = open("data.txt")
+
+    try:
+        risky_operation()
+    except Exception:
+        return None
+
+    f.close()
+"""
+        rule_a = FileLeakRule()
+        res_a = rule_a.detect_resources(parser.parse_source(case_a).tree)
+        assert len(res_a) == 1
+        assert res_a[0].status == "LEAK"
+        assert len(rule_a.issues) == 1
+        assert "except Exception" in rule_a.issues[0].leak_path
+        assert "return (leak)" in rule_a.issues[0].leak_path
+        assert "not closed on exception path" in rule_a.issues[0].problem
+
+        # CASE B — MUST REPORT LEAK
+        case_b = """
+def load():
+    f = open("data.txt")
+    raise RuntimeError("failed")
+    f.close()
+"""
+        rule_b = FileLeakRule()
+        res_b = rule_b.detect_resources(parser.parse_source(case_b).tree)
+        assert len(res_b) == 1
+        assert res_b[0].status == "LEAK"
+        assert len(rule_b.issues) == 1
+        assert "raise (leak)" in rule_b.issues[0].leak_path
+
+        # CASE C — MUST REPORT SAFE
+        case_c = """
+def load():
+    f = open("data.txt")
+
+    try:
+        return f.read()
+    finally:
+        f.close()
+"""
+        rule_c = FileLeakRule()
+        res_c = rule_c.detect_resources(parser.parse_source(case_c).tree)
+        assert len(res_c) == 1
+        assert res_c[0].status == "SAFE"
+        assert len(rule_c.issues) == 0
+
+        # CASE D — MUST REPORT SAFE
+        case_d = """
+def load():
+    f = open("data.txt")
+
+    try:
+        risky_operation()
+    except Exception:
+        handle_error()
+    finally:
+        f.close()
+"""
+        rule_d = FileLeakRule()
+        res_d = rule_d.detect_resources(parser.parse_source(case_d).tree)
+        assert len(res_d) == 1
+        assert res_d[0].status == "SAFE"
+        assert len(rule_d.issues) == 0
+
+        # CASE E — MUST CONTINUE PASSING
+        case_e = """
+with open("data.txt") as f:
+    return f.read()
+"""
+        rule_e = FileLeakRule()
+        res_e = rule_e.detect_resources(parser.parse_source(case_e).tree)
+        assert len(res_e) == 1
+        assert res_e[0].status == "SAFE"
+        assert res_e[0].is_context_manager is True
+        assert len(rule_e.issues) == 0
+
+    # 13. Verify structured finding dimensions
+    def test_13_finding_data_structure_dimensions(self, parser, rule):
+        code = """
+def load():
+    f = open("data.txt")
+    try:
+        risky_operation()
+    except Exception:
+        return None
+    f.close()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(rule.issues) == 1
+        issue = rule.issues[0]
+
+        d = issue.to_dict()
+        # Required dimensions: resource, variable, opened line, path, reason, cleanup status, severity
+        assert d["resource"] == "f (file)"
+        assert d["variable"] == "f"
+        assert d["opened_line"] == 3
+        assert "open()" in d["path"] and "return (leak)" in d["path"]
+        assert "not closed on exception path" in d["reason"]
+        assert d["cleanup_status"] == "UNCLOSED"
+        assert d["severity"] == "HIGH"
+
 
 class TestNewPythonSampleFiles:
     """Test the newly added sample files under python/leaks and python/safe."""

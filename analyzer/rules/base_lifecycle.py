@@ -203,12 +203,21 @@ class BaseResourceLifecycleRule(BaseRule):
                 subsequent_stmts = statements[i + 1 :] + (outer_subsequent or [])
 
                 # If parent_try has a guaranteed finally close, evaluate that first
-                if parent_try and parent_try.finalbody:
-                    finally_close = self._find_release_in_stmts(parent_try.finalbody, var_name)
-                    if finally_close and not self._find_unclosed_exit_detail(parent_try.finalbody, var_name):
+                if parent_try:
+                    if parent_try.finalbody:
+                        finally_close = self._find_release_in_stmts(parent_try.finalbody, var_name)
+                        if finally_close and not self._find_unclosed_exit_detail(parent_try.finalbody, var_name):
+                            resource.status = "SAFE"
+                            resource.closing_line = finally_close
+                            resource.explanation = f"Guaranteed closed in finally block at line {finally_close}."
+                            resource.leak_path = None
+                            self.resources.append(resource)
+                            continue
+                    nested_fin = self._find_guaranteed_release_in_stmts(parent_try.body, var_name)
+                    if nested_fin:
                         resource.status = "SAFE"
-                        resource.closing_line = finally_close
-                        resource.explanation = f"Guaranteed closed in finally block at line {finally_close}."
+                        resource.closing_line = nested_fin
+                        resource.explanation = f"Guaranteed closed in nested finally block at line {nested_fin}."
                         resource.leak_path = None
                         self.resources.append(resource)
                         continue
@@ -381,7 +390,7 @@ class BaseResourceLifecycleRule(BaseRule):
 
             # 3. Try / Except / Finally block analysis
             if isinstance(stmt, ast.Try):
-                # 3a. Guaranteed release in finally block
+                # 3a. Guaranteed release in finally block (direct or nested)
                 finally_close = self._find_release_in_stmts(stmt.finalbody, var_name)
                 if finally_close:
                     finally_exit = self._find_unclosed_exit_detail(stmt.finalbody, var_name)
@@ -393,6 +402,17 @@ class BaseResourceLifecycleRule(BaseRule):
                             None,
                             "",
                         )
+
+                # Check nested try...finally inside try block body
+                nested_fin = self._find_guaranteed_release_in_stmts(stmt.body, var_name)
+                if nested_fin:
+                    return (
+                        "SAFE",
+                        nested_fin,
+                        f"Guaranteed closed in nested finally block at line {nested_fin}.",
+                        None,
+                        "",
+                    )
 
                 # 3b. Except handlers early return or raise before release
                 for h in stmt.handlers:
@@ -506,6 +526,23 @@ class BaseResourceLifecycleRule(BaseRule):
                     return getattr(child, "lineno", getattr(s, "lineno", None))
         return None
 
+    def _find_guaranteed_release_in_stmts(
+        self, stmts: List[ast.stmt], var_name: str
+    ) -> Optional[int]:
+        """Find release that is guaranteed to run in a nested try...finally block."""
+        for s in stmts:
+            if isinstance(s, (ast.Return, ast.Raise)):
+                return None
+            if isinstance(s, ast.Try):
+                if s.finalbody:
+                    fin_close = self._find_release_in_stmts(s.finalbody, var_name)
+                    if fin_close and not self._find_unclosed_exit_detail(s.finalbody, var_name):
+                        return fin_close
+                nested = self._find_guaranteed_release_in_stmts(s.body, var_name)
+                if nested:
+                    return nested
+        return None
+
     def _find_unclosed_exit_detail(
         self, stmts: List[ast.stmt], var_name: str
     ) -> Optional[Tuple[int, str]]:
@@ -566,4 +603,14 @@ class BaseResourceLifecycleRule(BaseRule):
                     exit_else = self._find_unclosed_return_in_stmts(s.orelse, var_name)
                     if exit_else:
                         return exit_else
+            if isinstance(s, ast.Try):
+                finally_close = self._find_release_in_stmts(s.finalbody, var_name)
+                if not finally_close:
+                    try_ret = self._find_unclosed_return_in_stmts(s.body, var_name)
+                    if try_ret:
+                        return try_ret
+                    for h in s.handlers:
+                        h_ret = self._find_unclosed_return_in_stmts(h.body, var_name)
+                        if h_ret:
+                            return h_ret
         return None
