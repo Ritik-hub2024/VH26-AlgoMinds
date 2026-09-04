@@ -36,16 +36,27 @@ jobs:
       - name: Verify safe Python corpus (exit 0)
         run: python cli.py --target python/safe/ --github-summary
 
-      - name: Verify baseline differential gating (exit 0 on tolerated baseline leaks)
+      - name: Generate baseline from leak corpus (expect exit 1)
+        shell: bash
         run: |
+          set +e
           python cli.py --target python/leaks/ --baseline-out leak_baseline.json
+          status=$?
+          set -e
+
+          if [ "$status" -ne 1 ]; then
+            echo "ERROR: Baseline generation expected exit code 1, got $status"
+            exit 1
+          fi
+
+          test -f leak_baseline.json
+          echo "SUCCESS: Baseline generated from expected leak corpus."
+
+      - name: Verify baseline differential gating (existing baseline leaks tolerated)
+        run: |
           python cli.py --target python/leaks/ --baseline leak_baseline.json --github-summary
 
-      - name: Verify SARIF export format
-        run: |
-          python cli.py --target python/leaks/ -f sarif -o results.sarif
-
-      - name: Verify leak detection blocks CI (exit 1)
+      - name: Verify new leak blocks CI
         shell: bash
         run: |
           set +e
@@ -58,4 +69,10 @@ jobs:
           fi
 
           echo "SUCCESS: LeakGuard correctly detected blocking leaks (exit code $status)."
-          exit 0
+
+          # Verify end-to-end PR simulation
+          python scripts/simulate_pr.py
+
+      - name: Verify SARIF export format
+        run: |
+          python cli.py --target python/leaks/ -f sarif -o results.sarif
