@@ -5,8 +5,8 @@
     "scope": "Intra-procedural AST Resource Lifecycle Analysis",
     "engine": "Pure Python AST (built-in ast module)",
     "benchmark_scope": "MVP Canonical Test Corpus (12 cases)",
-    "timestamp": "2026-09-04 12:57:05 UTC",
-    "duration_seconds": 0.0274
+    "timestamp": "2026-09-04 18:41:43 UTC",
+    "duration_seconds": 0.0223
   },
   "summary": {
     "total_cases": 12,

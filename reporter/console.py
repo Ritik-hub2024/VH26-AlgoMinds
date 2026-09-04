@@ -1,7 +1,7 @@
 """Terminal console reporter for LeakGuard analysis results."""
 
 import sys
-from typing import TextIO
+from typing import TextIO, Optional, Any
 from models.report import AnalysisReport
 
 
@@ -36,7 +36,7 @@ class ConsoleReporter:
     def bold(self, text: str) -> str:
         return self._color(text, "1")
 
-    def report(self, report: AnalysisReport) -> None:
+    def report(self, report: AnalysisReport, diff_report: Optional[Any] = None) -> None:
         """Render complete actionable report to stream."""
         p = self.stream.write
 
@@ -47,6 +47,9 @@ class ConsoleReporter:
         p(f" Target:   {report.target_path}\n")
         p(f" Files:    {report.files_scanned} scanned\n")
         p(f" Duration: {report.duration_seconds:.4f}s\n")
+        if diff_report and getattr(diff_report, "has_baseline", False):
+            p(f" Baseline: {len(diff_report.baseline_issues)} baseline leaks tolerated, {len(diff_report.new_issues)} new leaks\n")
+            p(f" Policy:   {diff_report.policy.block_level.value} threshold\n")
         p("-" * 64 + "\n\n")
 
         # 1. Report read errors if any
@@ -88,14 +91,23 @@ class ConsoleReporter:
 
         # 4. Summary banner
         p("-" * 64 + "\n")
-        if not report.has_errors_or_issues:
-            status = self.bold(self.green("PASSED: All files parsed cleanly. No syntax errors or leaks detected."))
-            p(f" Result: {status}\n")
-        else:
-            status = self.bold(self.red("FAILED: Resource leaks or syntax errors detected."))
+        if diff_report and getattr(diff_report, "has_baseline", False):
+            if not diff_report.has_blocking_issues:
+                status = self.bold(self.green(f"PASSED: No new blocking leaks. ({len(diff_report.baseline_issues)} existing baseline leaks tolerated)"))
+            else:
+                status = self.bold(self.red(f"FAILED: {len(diff_report.blocking_issues)} new blocking leaks detected."))
             p(f" Result: {status}\n")
             p(f" Summary: {report.clean_files_count}/{report.files_scanned} clean files, ")
-            p(f"{len(report.syntax_errors)} syntax errors, {len(report.issues)} issues.\n")
+            p(f"{len(report.syntax_errors)} syntax errors, {len(diff_report.new_issues)} new leaks ({len(diff_report.baseline_issues)} baseline tolerated).\n")
+        else:
+            if not report.has_errors_or_issues:
+                status = self.bold(self.green("PASSED: All files parsed cleanly. No syntax errors or leaks detected."))
+                p(f" Result: {status}\n")
+            else:
+                status = self.bold(self.red("FAILED: Resource leaks or syntax errors detected."))
+                p(f" Result: {status}\n")
+                p(f" Summary: {report.clean_files_count}/{report.files_scanned} clean files, ")
+                p(f"{len(report.syntax_errors)} syntax errors, {len(report.issues)} issues.\n")
 
         p(f" Note:   Intra-procedural scope. Cross-function ownership is not claimed.\n")
         p(self.bold("=" * 64) + "\n\n")

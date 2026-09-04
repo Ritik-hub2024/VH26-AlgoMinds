@@ -36,6 +36,15 @@ jobs:
       - name: Verify safe Python corpus (exit 0)
         run: python cli.py --target python/safe/ --github-summary
 
+      - name: Verify baseline differential gating (exit 0 on tolerated baseline leaks)
+        run: |
+          python cli.py --target python/leaks/ --baseline-out leak_baseline.json
+          python cli.py --target python/leaks/ --baseline leak_baseline.json --github-summary
+
+      - name: Verify SARIF export format
+        run: |
+          python cli.py --target python/leaks/ -f sarif -o results.sarif
+
       - name: Verify leak detection blocks CI (exit 1)
         shell: bash
         run: |

@@ -34,7 +34,7 @@ leakguard = "leakguard.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["leakguard*", "parser*", "analyzer*", "models*", "reporter*"]
+include = ["leakguard*", "parser*", "analyzer*", "models*", "reporter*", "storage*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,6 +52,7 @@ project-includes = [
     "parser/**/*.py",
     "python/**/*.py",
     "reporter/**/*.py",
+    "storage/**/*.py",
     "tests/**/*.py",
     "*.py",
 ]

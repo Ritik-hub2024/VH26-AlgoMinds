@@ -29,16 +29,21 @@ Python AST Parser
     ↓
 Resource Lifecycle Rules
     ↓
-Structured Report
+Structured Analysis Report
     ↓
-Console / JSON / Dashboard / GitHub CI
+Developer Dashboard / GitHub CI / Admin Dashboard
+    ↓
+Storage Adapter (`storage/database.py`)
+    ↓
+Persistent SQLite Database (`leakguard.db`)
 ```
 
 - **Python AST Parser (`parser/`)**: The parsing layer converts Python source code into AST representations safely via `ast.parse` with guaranteed zero code execution.
 - **Analysis Engine & Rules (`analyzer/`)**: The core detection layer coordinates lifecycle rules (`FileLeakRule`, `SQLiteLeakRule`) inheriting from `BaseResourceLifecycleRule` to evaluate sequential statements, branches, early returns, exceptions, and `finally` cleanup.
-- **Domain Models (`models/`)**: Structured data representations for resources, leak issues, severity levels, syntax errors, and analysis reports.
+- **Domain Models (`models/`)**: Structured data representations for resources, leak issues, severity levels, syntax errors, and analysis reports, plus product-level entity models (`Project`, `ScanRecord`, `FindingRecord`).
 - **Reporting Engine (`reporter/`)**: Output formatting layer providing human-readable terminal reports (`ConsoleReporter`), machine-readable JSON (`JSONReporter`), and GitHub Actions job summaries (`MarkdownReporter`).
-- **Interactive Dashboard (`frontend/` & `app.py`)**: Visualization layer presenting live scan metrics, severity filtering, code snippets, and leak path traces.
+- **Persistence Layer (`storage/`)**: Thread-safe SQLite persistence layer completely decoupled from the core analyzer, storing project health, scan history, and findings across sessions.
+- **Developer & Admin Dashboard (`frontend/` & `app.py`)**: Dual-view interface separating developer triage (interactive scans, leak traces, code fixes) and product owner security monitoring (portfolio health, CI gates, chronological scan history, and leak analytics).
 - **GitHub Actions CI/CD (`.github/workflows/ci.yml`)**: Automated CI enforcement layer enforcing deterministic exit codes (0 for clean code, 1 for blocking leaks).
 
 ---
@@ -243,7 +248,7 @@ LeakGuard/
 │   ├── run_benchmark.py   # Automated corpus benchmark runner
 │   └── benchmark_parser.py# AST parsing throughput micro-benchmark
 │
-└── tests/                 # Comprehensive test suite (103 passing tests)
+└── tests/                 # Comprehensive test suite (133 passing tests)
     ├── __init__.py
     ├── test_parser.py     # AST parser & syntax error tests
     ├── test_cli.py        # CLI discovery & scanning tests
@@ -252,7 +257,11 @@ LeakGuard/
     ├── test_analyzer.py   # Canonical corpus & exception tests
     ├── test_sqlite_leak.py# SQLite connection leak & finally tests
     ├── test_reporter.py   # Reporter formatting tests
-    └── test_server.py     # Local server & API tests
+    ├── test_storage.py    # SQLite persistent database tests
+    ├── test_admin_api.py  # Admin dashboard & analytics tests
+    ├── test_upload.py     # Unified developer file/folder upload tests
+    ├── test_server.py     # Local server & API tests
+    └── test_frontend_simulation.js # Browser DOM & interactive simulation tests
 ```
 
 ---
@@ -275,8 +284,11 @@ python cli.py python/ --format json
 ### 2. Run Tests
 Ensure all tests pass using `pytest`:
 ```bash
-# Run full consolidated test suite (108 tests)
+# Run full consolidated test suite (133 tests)
 python -m pytest tests/ -v
+
+# Run browser simulation tests (13 tests)
+node tests/test_frontend_simulation.js
 ```
 
 ### 3. Run Benchmark
@@ -291,10 +303,50 @@ Launch the interactive security dashboard with live Python AST scanning:
 python app.py
 ```
 Open `http://localhost:8000` to interact with the dashboard:
-- Select a target (`Entire Test Suite (python/)`, `Leaks Suite (python/leaks/)`, `Safe Suite (python/safe/)`, `Syntax Suite (python/syntax/)`)
+
+#### Developer View (`/#` or click "Developer View" tab)
+- Select a local workspace target from the dropdown or:
+- Click **Upload Python File** to upload and inspect an individual `.py` script
+- Click **Upload Python Folder** to upload an entire Python project directory tree
+- Drag and drop Python files or folders directly into the dropzone
 - Click **Scan Python Project** to execute live AST control-flow analysis
 - Inspect PASS / FAILED status, leak paths, and actionable recommendations
-- Click **Reset** to restore the dashboard to its clean state
+- Click **Reset** to restore the dashboard to its clean initial state
+
+#### Admin / Product Owner View (`/#admin` or click "Admin & Product Owner" tab)
+- **Portfolio Health Table**: High-level security status across projects (`HEALTHY`, `AT_RISK`, `REVIEW`, `NOT_SCANNED`).
+- **KPI Summary Cards**: Monitored Projects, Total Scans, Open Leaks, High Severity Leaks, and CI Blocked count.
+- **Drilldown Details**: Click **Details** on any project to inspect open findings, code locations, and chronological scan history.
+- **Recent Scans Activity Stream**: Real-time audit log with **Scan Type** categorization (`FILE UPLOAD`, `PROJECT UPLOAD`, `LOCAL SCAN`, `CI`).
+- **Security Analytics**: Visual breakdown of leaks by resource type, project leak distributions, and CI success rate.
+- **Automatic Persistence**: Every scan (local workspace, file upload, project upload, or CI) automatically persists to the SQLite database (`leakguard.db`) and refreshes Admin metrics.
+
+### 5. Unified Scan & Upload REST API Endpoints
+
+The dashboard server exposes dedicated endpoints for live scans, uploads, and organizational visibility:
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/scan/upload` | Upload single `.py` file or folder payload for isolated AST leak analysis |
+| `GET` | `/api/scan?target=<path>` | Execute AST scan on local workspace target |
+| `GET` | `/api/admin/summary` | High-level KPI metrics (projects, total scans, open leaks, high severity, CI blocked) |
+| `GET` | `/api/admin/projects` | Monitored projects with health status, latest scan outcome, and leak counts |
+| `GET` | `/api/admin/project?id=<id>` | Detailed project metadata, latest scan, open findings, and chronological scan history |
+| `GET` | `/api/admin/scans?limit=50` | Recent scan executions activity stream with `scan_type` tags |
+| `GET` | `/api/admin/analytics` | Resource breakdown, leak distributions by project, and CI pass/fail rate |
+| `GET` | `/admin` | Redirects to `/#admin` in the web application |
+
+### 6. Security & Sandboxing Guarantees
+- **Zero Code Execution**: Uploaded files are strictly parsed using `ast.parse()`. Target code is never imported, executed, or evaluated.
+- **Temporary Sandboxing**: Uploads are written into ephemeral `tempfile.TemporaryDirectory()` workspaces and completely unlinked immediately after AST analysis.
+- **Strict Path Traversal Blocking**: Filenames with `..`, absolute paths, colon drive letters, or null bytes are rejected with `400 Bad Request`.
+- **Python File Filtering**: Only `.py` files are parsed; non-Python files in folder uploads are ignored automatically.
+
+### 7. CLI Persistent Recording
+To persist CLI or CI/CD scan results directly into the local database:
+```bash
+python cli.py python/safe/ --record --project-id my-project
+```
 
 ---
 
@@ -321,6 +373,78 @@ LeakGuard integrates directly into GitHub Actions and CI/CD pipelines to block r
 Safe code   → exit 0 → CI PASS
 Leak found  → exit 1 → CI FAIL
 Syntax error→ exit 1 → CI FAIL
+```
+
+---
+
+## GitHub PR Security Experience & Deterministic Baselines
+
+LeakGuard provides an enterprise-grade Pull Request security gate that eliminates developer frustration when introducing static analysis into legacy codebases.
+
+### 1. Deterministic Baseline Support
+In existing projects with legacy resource leaks, running a strict linter on every PR can block developers for pre-existing issues they did not introduce. LeakGuard solves this with **deterministic baselines**:
+
+```bash
+# 1. Establish initial baseline on main branch
+python cli.py --target . --baseline-out .leakguard-baseline.json
+
+# 2. Run PR differential check in CI
+python cli.py --target . --baseline .leakguard-baseline.json --github-summary
+```
+
+### 2. Stable Finding Identity Strategy
+Unlike fragile fuzzy matching or line-distance algorithms, LeakGuard employs a strictly deterministic 5-tuple fingerprint for finding identity:
+```
+(rule_id, normalized_relative_file_path, line, resource_type, resource_name)
+```
+- **Platform-Agnostic Normalization**: File paths are automatically converted to POSIX format and computed relative to the project root, ensuring identical fingerprints on Windows, Linux, and macOS GitHub runners.
+- **Precision**: Moving a function or changing a line number intentionally re-surfaces the finding for review, preventing unclosed resources from silently disappearing.
+
+### 3. PR-Friendly GitHub Step Summary
+When `--github-summary` is enabled, LeakGuard generates a rich markdown report directly into GitHub's Actions Summary with clear visual separation:
+- **PR Status Badge**:
+  - `❌ PR BLOCKED (FAILED)`: New blocking leaks or syntax errors detected.
+  - `⚠️ PR WARNING`: Non-blocking issues below policy threshold.
+  - `🛡️ PR PASSED (PASS)`: Zero new leaks; pre-existing baseline leaks tolerated.
+- **Summary Metrics**:
+  - Files Scanned, Clean Files, Syntax Errors, Total Leaks, New Leaks, Existing/Baseline Leaks, Duration, Security Policy.
+- **Distinct Finding Tables**:
+  - `🚨 NEW FINDINGS / Detected Resource Leaks`: Highlighting **BLOCKING** vs **WARNING** gate impact.
+  - `📋 EXISTING / BASELINE FINDINGS`: Clearly marked as `TOLERATED` with notes that they match the project baseline.
+  - `🛑 SYNTAX ERRORS`: Always gate-blocking errors preventing AST parsing.
+
+### 4. Configurable Security Policy (`--policy` / `--block-level`)
+Teams can configure gate thresholds to match their risk appetite:
+- `HIGH` (Default): Blocks PR on `HIGH` or `CRITICAL` leaks; `MEDIUM` issues warn.
+- `MEDIUM`: Blocks PR on `MEDIUM`, `HIGH`, or `CRITICAL` leaks; `LOW` issues warn.
+- `LOW`: Blocks PR on any detected issue.
+- **Syntax Errors**: Always fail the gate (exit 1) regardless of policy or baseline.
+
+```bash
+python cli.py . --policy HIGH --baseline baseline.json
+```
+
+### 5. SARIF v2.1.0 Export (GitHub Code Scanning Tab)
+LeakGuard exports findings in standard OASIS SARIF v2.1.0 JSON format without any modifications to the core analyzer:
+```bash
+python cli.py . -f sarif -o leakguard-results.sarif
+```
+This enables seamless integration with GitHub Advanced Security and Code Scanning:
+```yaml
+- name: Run LeakGuard SARIF Scan
+  run: python cli.py --target . -f sarif -o leakguard.sarif
+
+- name: Upload SARIF to GitHub Code Scanning
+  uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: leakguard.sarif
+```
+
+### 6. PR Workflow Simulation
+Run the included end-to-end simulation script to see baseline generation, PR blocking, PR fixing, and syntax error isolation in action:
+```bash
+python scripts/simulate_pr.py
 ```
 
 ---

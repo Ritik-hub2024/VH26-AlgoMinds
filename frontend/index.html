@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LeakGuard - Static Analyzer Dashboard</title>
+  <title>LeakGuard - Static Analyzer & Admin Dashboard</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,7 +21,7 @@
         </div>
       </div>
       <div class="header-right">
-        <!-- CHANGE 2: Last Scan Widget -->
+        <!-- Last Scan Widget -->
         <div class="last-scan-box" id="last-scan-container">
           <div class="last-scan-label">Last Scan</div>
           <div class="last-scan-value" id="last-scan-text">Not scanned yet</div>
@@ -31,144 +31,371 @@
       </div>
     </header>
 
+    <!-- Navigation Bar: Developer vs Admin View -->
+    <nav class="navigation-bar" role="tablist" aria-label="Dashboard Views">
+      <div class="nav-tabs">
+        <button class="nav-tab active" id="tab-dev" role="tab" aria-selected="true" aria-controls="view-developer">
+          <span class="nav-tab-icon">⚡</span> Developer View
+        </button>
+        <button class="nav-tab" id="tab-admin" role="tab" aria-selected="false" aria-controls="view-admin">
+          <span class="nav-tab-icon">📊</span> Admin & Product Owner
+        </button>
+      </div>
+      <div class="nav-status-group">
+        <span class="nav-pill" id="nav-mode-badge">Developer Mode</span>
+      </div>
+    </nav>
+
     <main class="main-content">
-      <!-- CHANGE 3: Strong PASS / FAILED Status Banner -->
-      <section class="status-section" aria-live="polite">
-        <div class="status-banner status-not-scanned" id="scan-status-banner">
-          <div class="status-icon-wrap">
-            <span class="status-icon" id="status-icon">○</span>
-          </div>
-          <div class="status-info">
-            <div class="status-title" id="status-title">NOT SCANNED</div>
-            <div class="status-desc" id="status-desc">Run a Python project scan to begin.</div>
-          </div>
-          <div class="status-progress-steps" id="status-progress-steps" style="display: none;">
-            <div class="spinner"></div>
-            <span id="status-step-text">Scanning Python files...</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Metrics Overview -->
-      <section class="metrics-grid" aria-label="Scan Metrics">
-        <div class="metric-card">
-          <div class="metric-title">Files Scanned</div>
-          <div class="metric-value" id="val-scanned">0</div>
-          <div class="metric-sub">Across target path</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-title">Clean Files</div>
-          <div class="metric-value text-green" id="val-clean">0</div>
-          <div class="metric-sub">Zero leaks or syntax errors</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-title">Syntax Errors</div>
-          <div class="metric-value text-red" id="val-syntax-errors">0</div>
-          <div class="metric-sub">Requires developer fix</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-title">Leaks Detected</div>
-          <div class="metric-value text-amber" id="val-leaks">0</div>
-          <div class="metric-sub">Unclosed resources</div>
-        </div>
-      </section>
-
-      <!-- CHANGE 1: Scan Controls Panel with "Scan Python Project" CTA -->
-      <section class="panel scan-panel">
-        <div class="panel-header">
-          <div>
-            <h2>Python Analysis Controls</h2>
-            <p class="panel-subtitle">Select target Python sources and initiate static AST analysis</p>
-          </div>
-          <div class="action-buttons">
-            <div class="target-selector-wrapper">
-              <label for="scan-target-select" class="visually-hidden">Scan Target</label>
-              <select id="scan-target-select" class="scan-target-select" title="Choose Python target to scan">
-                <option value="examples" selected>📁 Examples Suite (examples/)</option>
-                <option value="python">📁 Entire Test Suite (python/)</option>
-                <option value="python/safe">🛡️ Safe Suite (python/safe/)</option>
-                <option value="python/leaks">⚠️ Leaks Suite (python/leaks/)</option>
-                <option value="python/syntax">❌ Syntax Suite (python/syntax/)</option>
-                <option value="python/safe/finally_close.py">🛡️ Finally Safe (python/safe/finally_close.py)</option>
-                <option value="python/safe/exception_finally.py">🛡️ Exception + Finally Safe (python/safe/exception_finally.py)</option>
-                <option value="python/leaks/exception_leak.py">⚠️ Exception-Return Leak (python/leaks/exception_leak.py)</option>
-                <option value="python/leaks/raise_leak.py">⚠️ Raise Leak (python/leaks/raise_leak.py)</option>
-                <option value="python/safe/with_file.py">🛡️ Safe Context Manager (python/safe/with_file.py)</option>
-                <option value="python/safe/explicit_close.py">🛡️ Safe Explicit Close (python/safe/explicit_close.py)</option>
-                <option value="python/leaks/early_return.py">⚠️ Early-Return Leak (python/leaks/early_return.py)</option>
-                <option value="python/leaks/file_no_close.py">⚠️ Unclosed Return Leak (python/leaks/file_no_close.py)</option>
-                <option value="python/leaks/sqlite_leak.py">⚠️ SQLite Leak (python/leaks/sqlite_leak.py)</option>
-                <option value="python/safe/sqlite_safe.py">🛡️ SQLite Safe (python/safe/sqlite_safe.py)</option>
-              </select>
+      <!-- ============================================================ -->
+      <!-- DEVELOPER VIEW (Interactive live scanning & findings)        -->
+      <!-- ============================================================ -->
+      <div id="view-developer" class="view-panel active">
+        <!-- Strong PASS / FAILED Status Banner -->
+        <section class="status-section" aria-live="polite">
+          <div class="status-banner status-not-scanned" id="scan-status-banner">
+            <div class="status-icon-wrap">
+              <span class="status-icon" id="status-icon">○</span>
             </div>
-            <button class="btn btn-scan" id="btn-scan">
-              <span class="btn-icon">🔍</span>
-              <span id="btn-scan-text">Scan Python Project</span>
-            </button>
-            <button class="btn btn-secondary" id="btn-clear" title="Reset dashboard to unscanned state">Reset</button>
+            <div class="status-info">
+              <div class="status-title" id="status-title">NOT SCANNED</div>
+              <div class="status-desc" id="status-desc">Run a Python project scan to begin.</div>
+            </div>
+            <div class="status-progress-steps" id="status-progress-steps" style="display: none;">
+              <div class="spinner"></div>
+              <span id="status-step-text">Scanning Python files...</span>
+            </div>
           </div>
-        </div>
-        <div class="dropzone" id="dropzone" tabindex="0">
-          <p>Drop a <code>leakguard.json</code> report file here or click <strong>Scan Python Project</strong> to run live AST analysis.</p>
-        </div>
-      </section>
+        </section>
 
-      <!-- Separate Syntax Errors container (Displayed only if syntax errors exist) -->
-      <section class="panel" id="syntax-panel" style="display: none;">
-        <div class="panel-header">
-          <div class="section-title-wrap">
-            <h2>Syntax Errors</h2>
-            <p class="panel-subtitle">Files that failed AST parsing due to invalid Python syntax</p>
+        <!-- Metrics Overview -->
+        <section class="metrics-grid" aria-label="Scan Metrics">
+          <div class="metric-card">
+            <div class="metric-title">Files Scanned</div>
+            <div class="metric-value" id="val-scanned">0</div>
+            <div class="metric-sub">Across target path</div>
           </div>
-          <span class="badge badge-error" id="syntax-count">0 errors</span>
-        </div>
-        <div class="syntax-list" id="syntax-list"></div>
-      </section>
+          <div class="metric-card">
+            <div class="metric-title">Clean Files</div>
+            <div class="metric-value text-green" id="val-clean">0</div>
+            <div class="metric-sub">Zero leaks or syntax errors</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Syntax Errors</div>
+            <div class="metric-value text-red" id="val-syntax-errors">0</div>
+            <div class="metric-sub">Requires developer fix</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Leaks Detected</div>
+            <div class="metric-value text-amber" id="val-leaks">0</div>
+            <div class="metric-sub">Unclosed resources</div>
+          </div>
+        </section>
 
-      <!-- CHANGE 4: Actionable Resource Leak Findings -->
-      <section class="panel">
-        <div class="panel-header">
-          <div class="section-title-wrap">
-            <h2>Resource Leak Findings</h2>
-            <p class="panel-subtitle">Actionable lifecycle inspection across all parsed AST control-flow paths</p>
+        <!-- Scan Controls Panel with "Scan Python Project" CTA -->
+        <section class="panel scan-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Python Analysis Controls</h2>
+              <p class="panel-subtitle">Select target Python sources and initiate static AST analysis</p>
+            </div>
+            <div class="action-buttons">
+              <div class="target-selector-wrapper">
+                <label for="scan-target-select" class="visually-hidden">Scan Target</label>
+                <select id="scan-target-select" class="scan-target-select" title="Choose Python target to scan">
+                  <option value="examples" selected>📁 Examples Suite (examples/)</option>
+                  <option value="python">📁 Entire Test Suite (python/)</option>
+                  <option value="python/safe">🛡️ Safe Suite (python/safe/)</option>
+                  <option value="python/leaks">⚠️ Leaks Suite (python/leaks/)</option>
+                  <option value="python/syntax">❌ Syntax Suite (python/syntax/)</option>
+                  <option value="python/safe/finally_close.py">🛡️ Finally Safe (python/safe/finally_close.py)</option>
+                  <option value="python/safe/exception_finally.py">🛡️ Exception + Finally Safe (python/safe/exception_finally.py)</option>
+                  <option value="python/leaks/exception_leak.py">⚠️ Exception-Return Leak (python/leaks/exception_leak.py)</option>
+                  <option value="python/leaks/raise_leak.py">⚠️ Raise Leak (python/leaks/raise_leak.py)</option>
+                  <option value="python/safe/with_file.py">🛡️ Safe Context Manager (python/safe/with_file.py)</option>
+                  <option value="python/safe/explicit_close.py">🛡️ Safe Explicit Close (python/safe/explicit_close.py)</option>
+                  <option value="python/leaks/early_return.py">⚠️ Early-Return Leak (python/leaks/early_return.py)</option>
+                  <option value="python/leaks/file_no_close.py">⚠️ Unclosed Return Leak (python/leaks/file_no_close.py)</option>
+                  <option value="python/leaks/sqlite_leak.py">⚠️ SQLite Leak (python/leaks/sqlite_leak.py)</option>
+                  <option value="python/safe/sqlite_safe.py">🛡️ SQLite Safe (python/safe/sqlite_safe.py)</option>
+                </select>
+              </div>
+              <button class="btn btn-scan" id="btn-scan">
+                <span class="btn-icon">🔍</span>
+                <span id="btn-scan-text">Scan Python Project</span>
+              </button>
+              <input type="file" id="input-upload-file" accept=".py" style="display:none;">
+              <input type="file" id="input-upload-folder" webkitdirectory directory multiple style="display:none;">
+              <button class="btn btn-upload" id="btn-upload-file" title="Upload a single Python file">
+                <span class="btn-icon">📄</span>
+                <span>Upload Python File</span>
+              </button>
+              <button class="btn btn-upload" id="btn-upload-folder" title="Upload a Python project folder">
+                <span class="btn-icon">📂</span>
+                <span>Upload Python Folder</span>
+              </button>
+              <button class="btn btn-secondary" id="btn-clear" title="Reset dashboard to unscanned state">Reset</button>
+            </div>
           </div>
-          <span class="badge" id="findings-count">0 findings</span>
-        </div>
+          <div class="dropzone" id="dropzone" tabindex="0">
+            <p>Drag & drop Python files (<code>.py</code>) or folders here, drop a <code>leakguard.json</code> report, or click <strong>Scan Python Project</strong> / <strong>Upload</strong>.</p>
+          </div>
+        </section>
 
-        <div id="findings-container" class="findings-container">
-          <div class="empty-state" id="findings-empty-state">
-            ○ No analysis performed yet. Click <strong>Scan Python Project</strong> above to begin.
+        <!-- Separate Syntax Errors container -->
+        <section class="panel" id="syntax-panel" style="display: none;">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Syntax Errors</h2>
+              <p class="panel-subtitle">Files that failed AST parsing due to invalid Python syntax</p>
+            </div>
+            <span class="badge badge-error" id="syntax-count">0 errors</span>
           </div>
-        </div>
-      </section>
+          <div class="syntax-list" id="syntax-list"></div>
+        </section>
 
-      <!-- Detailed Parsed Files Inspection Table -->
-      <section class="panel">
-        <div class="panel-header" id="toggle-files-table">
-          <div class="section-title-wrap">
-            <h2>Parsed Files Inventory</h2>
-            <p class="panel-subtitle">Detailed per-file AST parsing report</p>
+        <!-- Actionable Resource Leak Findings -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Resource Leak Findings</h2>
+              <p class="panel-subtitle">Actionable lifecycle inspection across all parsed AST control-flow paths</p>
+            </div>
+            <span class="badge" id="findings-count">0 findings</span>
           </div>
-          <span class="badge" id="results-count">0 items</span>
-        </div>
-        <div class="table-container" id="files-table-container">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>File Path</th>
-                <th>AST Inspection Details</th>
-                <th>Location</th>
-              </tr>
-            </thead>
-            <tbody id="results-tbody">
-              <tr>
-                <td colspan="4" class="empty-state">No analysis report loaded. Click "Scan Python Project" above.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+
+          <div id="findings-container" class="findings-container">
+            <div class="empty-state" id="findings-empty-state">
+              ○ No analysis performed yet. Click <strong>Scan Python Project</strong> above to begin.
+            </div>
+          </div>
+        </section>
+
+        <!-- Detailed Parsed Files Inspection Table -->
+        <section class="panel">
+          <div class="panel-header" id="toggle-files-table">
+            <div class="section-title-wrap">
+              <h2>Parsed Files Inventory</h2>
+              <p class="panel-subtitle">Detailed per-file AST parsing report</p>
+            </div>
+            <span class="badge" id="results-count">0 items</span>
+          </div>
+          <div class="table-container" id="files-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Status</th>
+                  <th>File Path</th>
+                  <th>AST Inspection Details</th>
+                  <th>Location</th>
+                </tr>
+              </thead>
+              <tbody id="results-tbody">
+                <tr>
+                  <td colspan="4" class="empty-state">No analysis report loaded. Click "Scan Python Project" above.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============================================================ -->
+      <!-- ADMIN / PRODUCT OWNER VIEW (Portfolio health & history)      -->
+      <!-- ============================================================ -->
+      <div id="view-admin" class="view-panel" style="display: none;">
+        <!-- Admin Summary Cards -->
+        <section class="admin-summary-grid" aria-label="Admin Summary Metrics">
+          <div class="metric-card">
+            <div class="metric-title">Monitored Projects</div>
+            <div class="metric-value text-blue" id="admin-val-projects">0</div>
+            <div class="metric-sub">Active codebases</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Total Scans Executed</div>
+            <div class="metric-value" id="admin-val-scans">0</div>
+            <div class="metric-sub">Across all repositories</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Open Leaks</div>
+            <div class="metric-value text-amber" id="admin-val-open-leaks">0</div>
+            <div class="metric-sub">Requiring remediation</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">High Severity</div>
+            <div class="metric-value text-red" id="admin-val-high-severity">0</div>
+            <div class="metric-sub">Critical security risk</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">CI Blocked Status</div>
+            <div class="metric-value text-red" id="admin-val-ci-blocked">0</div>
+            <div class="metric-sub">Projects failing gates</div>
+          </div>
+        </section>
+
+        <!-- Project Health Portfolio Table -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Project Security Health Portfolio</h2>
+              <p class="panel-subtitle">Portfolio-level resource leak posture and CI gate statuses across monitored repositories</p>
+            </div>
+            <span class="badge" id="admin-projects-count">0 projects</span>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Repository</th>
+                  <th>Branch</th>
+                  <th>Last Scan</th>
+                  <th>Open Leaks</th>
+                  <th>CI Status</th>
+                  <th>Health</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="admin-projects-tbody">
+                <tr>
+                  <td colspan="8" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Project Detail Drilldown View -->
+        <section class="panel project-detail-panel" id="admin-project-detail" style="display: none;">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <div class="detail-header-row">
+                <button class="btn btn-secondary btn-sm" id="btn-close-project-detail">← Back to Overview</button>
+                <h2 id="detail-project-name">Project Details</h2>
+              </div>
+              <p class="panel-subtitle" id="detail-project-sub">Repository and branch info</p>
+            </div>
+            <span class="badge" id="detail-project-health-badge">HEALTHY</span>
+          </div>
+
+          <div class="detail-grid">
+            <div class="detail-stat">
+              <div class="stat-label">Files Scanned</div>
+              <div class="stat-value" id="detail-files-scanned">0</div>
+            </div>
+            <div class="detail-stat">
+              <div class="stat-label">Clean Files</div>
+              <div class="stat-value text-green" id="detail-clean-files">0</div>
+            </div>
+            <div class="detail-stat">
+              <div class="stat-label">Syntax Errors</div>
+              <div class="stat-value text-red" id="detail-syntax-errors">0</div>
+            </div>
+            <div class="detail-stat">
+              <div class="stat-label">Detected Leaks</div>
+              <div class="stat-value text-amber" id="detail-leaks">0</div>
+            </div>
+          </div>
+
+          <!-- Open Findings for Selected Project -->
+          <div class="sub-panel">
+            <h3>Open Vulnerabilities & Resource Leaks</h3>
+            <div id="detail-findings-container" class="findings-container">
+              <div class="empty-state">No open leaks detected in latest scan.</div>
+            </div>
+          </div>
+
+          <!-- Chronological Scan History for Selected Project -->
+          <div class="sub-panel">
+            <h3>Scan History & CI Gate Results</h3>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Scan ID</th>
+                    <th>Type</th>
+                    <th>Timestamp</th>
+                    <th>Target</th>
+                    <th>Files Scanned</th>
+                    <th>Clean Files</th>
+                    <th>Leaks Detected</th>
+                    <th>Duration</th>
+                    <th>CI Status</th>
+                  </tr>
+                </thead>
+                <tbody id="detail-history-tbody">
+                  <tr>
+                    <td colspan="9" class="empty-state">No historical scans recorded.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Recent Scans Stream Across Portfolio -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Recent Scans Activity Stream</h2>
+              <p class="panel-subtitle">Automated history of live developer and CI/CD executions across all projects</p>
+            </div>
+            <span class="badge" id="admin-scans-count">0 scans</span>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Project</th>
+                  <th>Scan ID</th>
+                  <th>Type</th>
+                  <th>Timestamp</th>
+                  <th>Target Path</th>
+                  <th>Files Scanned</th>
+                  <th>Leaks Detected</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="admin-scans-tbody">
+                <tr>
+                  <td colspan="8" class="empty-state">No scan history available yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Security Analytics & Trends Preparation -->
+        <section class="panel">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Security Posture & Leak Analytics</h2>
+              <p class="panel-subtitle">Resource lifecycle breakdowns and historical security metrics</p>
+            </div>
+          </div>
+          <div id="analytics-container" class="analytics-container">
+            <div class="empty-state" id="analytics-empty-state">
+              No scan history available yet.
+            </div>
+            <div id="analytics-content" class="analytics-grid-content" style="display: none;">
+              <div class="analytics-row">
+                <div class="analytics-card">
+                  <h4>Leaks by Resource Type</h4>
+                  <ul class="analytics-list" id="analytics-resource-list"></ul>
+                </div>
+                <div class="analytics-card">
+                  <h4>Leaks by Project</h4>
+                  <ul class="analytics-list" id="analytics-project-list"></ul>
+                </div>
+                <div class="analytics-card">
+                  <h4>CI Gate Success Rate</h4>
+                  <div class="ci-stats-box" id="analytics-ci-box"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
     </main>
 
     <footer class="footer">

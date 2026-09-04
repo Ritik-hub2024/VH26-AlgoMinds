@@ -1,74 +1,145 @@
 """Markdown and GitHub Step Summary reporter for LeakGuard."""
 
-from typing import TextIO, Optional
+from typing import TextIO, Optional, Union
 from pathlib import Path
+
 from models.report import AnalysisReport
+from models.baseline import DifferentialReport
+from models.policy import SecurityPolicy
 
 
 class MarkdownReporter:
-    """Formats analysis report into GitHub Step Summary Markdown."""
+    """Formats analysis report into GitHub Step Summary Markdown with baseline & policy support."""
 
     def __init__(self, stream: Optional[TextIO] = None) -> None:
         self.stream = stream
 
-    def to_markdown(self, report: AnalysisReport) -> str:
+    def to_markdown(
+        self,
+        report: Union[AnalysisReport, DifferentialReport],
+        diff_report: Optional[DifferentialReport] = None,
+    ) -> str:
         """Render report as GitHub-flavored markdown."""
-        status_str = "FAILED" if report.has_errors_or_issues else "PASS"
-        status_badge = "🛡️ **PASS**" if not report.has_errors_or_issues else "❌ **FAILED**"
+        if isinstance(report, DifferentialReport):
+            diff = report
+            base_report = report.report
+        elif diff_report is not None:
+            diff = diff_report
+            base_report = report
+        else:
+            base_report = report
+            diff = DifferentialReport.create(report)
+
+        policy_desc = f"{diff.policy.block_level.value} (blocks ≥ {diff.policy.block_level.value})"
 
         lines = [
             "## 🛡️ LeakGuard Security Scan",
             "",
-            f"- **Status:** {status_badge}",
-            f"- **Target:** `{report.target_path}`",
-            f"- **Files Scanned:** {report.files_scanned}",
-            f"- **Clean Files:** {report.clean_files_count}",
-            f"- **Leaks Detected:** {len(report.issues)}",
-            f"- **Syntax Errors:** {len(report.syntax_errors)}",
-            f"- **Duration:** {report.duration_seconds:.4f}s",
+            f"- **Status:** {diff.status_badge}",
+            f"- **Target:** `{base_report.target_path}`",
+            f"- **Files Scanned:** {base_report.files_scanned}",
+            f"- **Clean Files:** {base_report.clean_files_count}",
+            f"- **Syntax Errors:** {len(base_report.syntax_errors)}",
+            f"- **Total Leaks:** {len(base_report.issues)}",
+            f"- **New Leaks:** {len(diff.new_issues)}",
+            f"- **Existing / Baseline Leaks:** {len(diff.baseline_issues)}",
+            f"- **Duration:** {base_report.duration_seconds:.4f}s",
+            f"- **Security Policy:** `{policy_desc}`",
             "",
         ]
 
-        if report.issues:
+        # 1. New Findings Section (Blocking and Warnings)
+        if diff.new_issues:
             lines.extend([
-                "### ⚠️ Detected Resource Leaks",
+                "### 🚨 NEW FINDINGS / Detected Resource Leaks",
                 "",
-                "| Severity | File:Line | Resource | Leak Path | Recommendation |",
-                "| :---: | :--- | :--- | :--- | :--- |",
+                "| Gate Impact | Severity | File:Line | Resource | Leak Path | Recommendation |",
+                "| :---: | :---: | :--- | :--- | :--- | :--- |",
             ])
-            for issue in report.issues:
+            for issue in diff.new_issues:
+                is_block = diff.policy.is_blocking(issue.severity)
+                impact_badge = "❌ **BLOCKING**" if is_block else "⚠️ **WARNING**"
                 sev = getattr(issue.severity, "value", str(issue.severity))
                 res = f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else issue.resource_type
                 leak_path = issue.leak_path.replace("->", "→") if issue.leak_path else "-"
                 loc = f"`{issue.location.file_path}:{issue.location.line}`"
                 rec = issue.recommendation or "-"
-                lines.append(f"| **{sev}** | {loc} | `{res}` | `{leak_path}` | {rec} |")
+                lines.append(f"| {impact_badge} | **{sev}** | {loc} | `{res}` | `{leak_path}` | {rec} |")
             lines.append("")
 
-        if report.syntax_errors:
+        # 2. Existing / Baseline Findings Section (Informational & Non-Blocking)
+        if diff.baseline_issues:
             lines.extend([
-                "### ❌ Syntax Errors",
+                "### 📋 EXISTING / BASELINE FINDINGS (Tolerated / Non-Blocking)",
+                "",
+                "> [!NOTE]",
+                f"> **{len(diff.baseline_issues)} existing leak(s)** match the established project baseline and will not fail this PR gate.",
+                "",
+                "| Status | Severity | File:Line | Resource | Leak Path | Notes |",
+                "| :---: | :---: | :--- | :--- | :--- | :--- |",
+            ])
+            for issue in diff.baseline_issues:
+                sev = getattr(issue.severity, "value", str(issue.severity))
+                res = f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else issue.resource_type
+                leak_path = issue.leak_path.replace("->", "→") if issue.leak_path else "-"
+                loc = f"`{issue.location.file_path}:{issue.location.line}`"
+                lines.append(f"| ℹ️ `TOLERATED` | **{sev}** | {loc} | `{res}` | `{leak_path}` | Pre-existing in baseline |")
+            lines.append("")
+
+        # 3. Syntax Errors Section (Always Blocking)
+        if base_report.syntax_errors:
+            lines.extend([
+                "### 🛑 SYNTAX ERRORS (Gate Blocking)",
                 "",
                 "| File:Line:Column | Error Message |",
                 "| :--- | :--- |",
             ])
-            for err in report.syntax_errors:
+            for err in base_report.syntax_errors:
                 col = f":{err.column}" if err.column else ""
                 lines.append(f"| `{err.filename}:{err.line}{col}` | {err.message} |")
             lines.append("")
 
-        if not report.has_errors_or_issues:
+        # 4. PR Decision Callout
+        if diff.has_syntax_errors:
+            lines.extend([
+                "> [!CAUTION]",
+                f"> ❌ **PR BLOCKED**: {len(base_report.syntax_errors)} syntax error(s) must be resolved before merging.",
+                "",
+            ])
+        elif diff.blocking_issues:
+            lines.extend([
+                "> [!CAUTION]",
+                f"> ❌ **PR BLOCKED**: {len(diff.blocking_issues)} new blocking resource leak(s) introduced in this PR. Clean up resources or handle exception paths.",
+                "",
+            ])
+        elif diff.warning_issues:
+            lines.extend([
+                "> [!WARNING]",
+                f"> ⚠️ **PR PASSED WITH WARNINGS**: {len(diff.warning_issues)} non-blocking issue(s) detected below the `{diff.policy.block_level.value}` blocking threshold.",
+                "",
+            ])
+        elif diff.has_baseline and diff.baseline_issues:
             lines.extend([
                 "> [!NOTE]",
-                "> ✅ **All scanned files are clean. Zero resource leaks or syntax errors detected.**",
+                f"> ✅ **PR PASSED**: Zero new resource leaks introduced. {len(diff.baseline_issues)} pre-existing baseline leak(s) tolerated.",
+                "",
+            ])
+        else:
+            lines.extend([
+                "> [!NOTE]",
+                "> ✅ **PR PASSED**: All scanned files are clean. Zero resource leaks or syntax errors detected.",
                 "",
             ])
 
         return "\n".join(lines)
 
-    def report(self, report: AnalysisReport) -> None:
+    def report(
+        self,
+        report: Union[AnalysisReport, DifferentialReport],
+        diff_report: Optional[DifferentialReport] = None,
+    ) -> None:
         """Write markdown report to stream."""
-        md = self.to_markdown(report)
+        md = self.to_markdown(report, diff_report=diff_report)
         if self.stream:
             try:
                 self.stream.write(md)
