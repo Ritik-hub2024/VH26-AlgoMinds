@@ -2,7 +2,7 @@
 
 import ast
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 from models.issue import LeakIssue, Severity
 from models.location import SourceLocation
@@ -43,15 +43,25 @@ class BaseRule(ast.NodeVisitor, ABC):
         node: ast.AST,
         message: str,
         recommendation: str = "",
-        severity: Severity = None,
+        severity: Optional[Severity] = None,
+        resource_name: str = "",
+        resource_type: str = "file",
+        problem: str = "",
+        leak_path: str = "",
+        function_name: str = "",
     ) -> None:
-        """Record an issue detected at the given AST node."""
+        """Record an actionable issue detected at the given AST node."""
         issue = LeakIssue(
             rule_id=self.rule_id,
             message=message,
             severity=severity or self.severity,
             location=self.create_location(node),
             recommendation=recommendation,
+            resource_name=resource_name,
+            resource_type=resource_type,
+            problem=problem or message,
+            leak_path=leak_path,
+            function_name=function_name,
         )
         self.issues.append(issue)
 

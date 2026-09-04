@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeakGuard - Static Analyzer Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">🛡️</div>
+        <div>
+          <h1 class="brand-title">LeakGuard</h1>
+          <p class="brand-subtitle">Pure AST Python Static Analyzer</p>
+        </div>
+      </div>
+      <div class="header-badge">MVP Foundation v0.1.0</div>
+    </header>
+
+    <main class="main-content">
+      <!-- Metrics Overview -->
+      <section class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-title">Files Scanned</div>
+          <div class="metric-value" id="val-scanned">0</div>
+          <div class="metric-sub">Across target path</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Clean Files</div>
+          <div class="metric-value text-green" id="val-clean">0</div>
+          <div class="metric-sub">Zero syntax errors</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Syntax Errors</div>
+          <div class="metric-value text-red" id="val-syntax-errors">0</div>
+          <div class="metric-sub">Requires developer fix</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-title">Leaks Detected</div>
+          <div class="metric-value text-amber" id="val-leaks">0</div>
+          <div class="metric-sub">Unclosed resources</div>
+        </div>
+      </section>
+
+      <!-- Scan Actions & Report Upload -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Inspection Overview</h2>
+          <div class="action-buttons">
+            <button class="btn btn-secondary" id="btn-load-sample">Load Sample Report</button>
+            <button class="btn btn-primary" id="btn-clear">Clear</button>
+          </div>
+        </div>
+        <div class="dropzone" id="dropzone">
+          <p>Drop a <code>leakguard.json</code> report file here or click to load sample data.</p>
+        </div>
+      </section>
+
+      <!-- Results Table -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Parsed Files & Findings</h2>
+          <span class="badge" id="results-count">0 items</span>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>File Path</th>
+                <th>Finding</th>
+                <th>Location</th>
+              </tr>
+            </thead>
+            <tbody id="results-tbody">
+              <tr>
+                <td colspan="4" class="empty-state">No analysis report loaded. Click "Load Sample Report" above.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>LeakGuard Static Analyzer &copy; 2026 &bull; Pure Python AST analysis &bull; Zero code execution</p>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

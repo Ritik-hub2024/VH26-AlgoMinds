@@ -8,13 +8,14 @@ from models.issue import LeakIssue
 from models.report import ParseResult
 from parser.ast_parser import ASTParser
 from .base import BaseRule
+from .rules.file_leak import FileLeakRule
 
 
 class AnalysisEngine:
     """Orchestrates AST-based analysis without executing scanned code."""
 
     def __init__(self, rules: Optional[Sequence[BaseRule]] = None) -> None:
-        self._rules: List[BaseRule] = list(rules) if rules else []
+        self._rules: List[BaseRule] = list(rules) if rules is not None else [FileLeakRule()]
         self._parser: ASTParser = ASTParser()
 
     def register_rule(self, rule: BaseRule) -> None:
