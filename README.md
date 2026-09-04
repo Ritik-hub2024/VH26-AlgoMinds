@@ -274,6 +274,33 @@ Open `http://localhost:8000` to interact with the dashboard:
 
 ---
 
+## CI/CD Integration
+
+LeakGuard integrates directly into GitHub Actions and CI/CD pipelines to block resource leaks before code merges into production.
+
+### How the CI Pipeline Works
+1. **Developer pushes code** or opens a pull request.
+2. **GitHub Actions workflow triggers** (`.github/workflows/ci.yml`) across supported Python versions (3.10, 3.11, 3.12, 3.13).
+3. **Environment setup & tests**: Dependencies are installed in a clean virtual environment and the full test suite runs (`pytest -v`).
+4. **LeakGuard scans Python code**:
+   ```bash
+   python cli.py --target python/safe/ --github-summary
+   ```
+5. **Deterministic Exit Codes**:
+   - `Safe code  -> exit 0 -> CI PASS`
+   - `Leak found -> exit 1 -> CI FAIL`
+6. **Developer feedback**: An actionable markdown report is automatically posted to the GitHub Actions Job Summary with exact file locations, leak paths, and fix recommendations.
+7. **Developer resolves the leak** and pushes again until the pipeline turns green.
+
+### Exit Code Semantics
+```
+Safe code   → exit 0 → CI PASS
+Leak found  → exit 1 → CI FAIL
+Syntax error→ exit 1 → CI FAIL
+```
+
+---
+
 ## License
 
 MIT

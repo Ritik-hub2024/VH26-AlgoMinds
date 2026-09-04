@@ -1,0 +1,52 @@
+name: LeakGuard CI
+
+"on":
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test-and-analyze:
+    name: Test & Analyze (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run automated test suite
+        run: pytest -v
+
+      - name: Verify safe Python corpus (exit 0)
+        run: python cli.py --target python/safe/ --github-summary
+
+      - name: Verify leak detection blocks CI (exit 1)
+        shell: bash
+        run: |
+          set +e
+          python cli.py --target python/leaks/ --github-summary
+          status=$?
+
+          if [ "$status" -eq 0 ]; then
+            echo "ERROR: LeakGuard failed to detect leaks in python/leaks/ (unexpected exit 0)."
+            exit 1
+          fi
+
+          echo "SUCCESS: LeakGuard correctly detected blocking leaks (exit code $status)."
+          exit 0

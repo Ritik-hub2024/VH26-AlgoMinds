@@ -2,5 +2,6 @@
 
 from .console import ConsoleReporter
 from .json_reporter import JSONReporter
+from .markdown import MarkdownReporter
 
-__all__ = ["ConsoleReporter", "JSONReporter"]
+__all__ = ["ConsoleReporter", "JSONReporter", "MarkdownReporter"]

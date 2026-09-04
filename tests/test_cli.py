@@ -81,6 +81,59 @@ class TestCLI(unittest.TestCase):
         self.assertIn("L10: open() -> L12: if skip -> L14: return (leak)", output)
         self.assertIn("with open", output)
 
+    def test_cli_exit_code_safe_corpus(self):
+        """CLI must return exit code 0 when scanning the safe corpus."""
+        from cli import main
+        python_dir = Path(__file__).resolve().parent.parent / "python" / "safe"
+        code = main(["--target", str(python_dir)])
+        self.assertEqual(code, 0)
+
+    def test_cli_exit_code_leak_corpus(self):
+        """CLI must return exit code 1 when scanning the leak corpus."""
+        from cli import main
+        python_dir = Path(__file__).resolve().parent.parent / "python" / "leaks"
+        code = main(["--target", str(python_dir)])
+        self.assertEqual(code, 1)
+
+    def test_cli_github_summary_generation(self):
+        """CLI --github-summary must write valid markdown summary file."""
+        from cli import main
+        python_dir = Path(__file__).resolve().parent.parent / "python"
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            summary_file = Path(tmp_dir) / "summary.md"
+            code = main(["--target", str(python_dir / "safe"), "--github-summary", str(summary_file)])
+            self.assertEqual(code, 0)
+            self.assertTrue(summary_file.exists())
+            content = summary_file.read_text(encoding="utf-8")
+            self.assertIn("LeakGuard Security Scan", content)
+            self.assertIn("Files Scanned", content)
+            self.assertIn("Clean Files", content)
+
+            # Test appending leak results
+            code_leak = main(["--target", str(python_dir / "leaks"), "--github-summary", str(summary_file)])
+            self.assertEqual(code_leak, 1)
+            content_appended = summary_file.read_text(encoding="utf-8")
+            self.assertIn("FAILED", content_appended)
+            self.assertIn("Detected Resource Leaks", content_appended)
+            self.assertIn("open()", content_appended)
+
+    def test_cli_markdown_format_output(self):
+        """CLI -f markdown must render markdown report to stdout."""
+        from cli import main
+        import sys
+        python_dir = Path(__file__).resolve().parent.parent / "python" / "safe"
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        try:
+            sys.stdout = captured
+            code = main(["--target", str(python_dir), "-f", "markdown"])
+        finally:
+            sys.stdout = old_stdout
+        self.assertEqual(code, 0)
+        out = captured.getvalue()
+        self.assertIn("LeakGuard Security Scan", out)
+        self.assertIn("PASS", out)
+
 
 if __name__ == "__main__":
     unittest.main()

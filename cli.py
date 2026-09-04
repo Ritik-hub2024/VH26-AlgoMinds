@@ -17,6 +17,7 @@ from parser.ast_parser import ASTParser
 from analyzer.engine import AnalysisEngine
 from reporter.console import ConsoleReporter
 from reporter.json_reporter import JSONReporter
+from reporter.markdown import MarkdownReporter
 
 # Ignored directory names during recursive scans
 IGNORED_DIRS = {
@@ -108,13 +109,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "path",
         nargs="?",
-        default=".",
+        default=None,
         help="Path to Python file or directory to scan (default: current directory).",
+    )
+    parser.add_argument(
+        "-t",
+        "--target",
+        dest="target",
+        default=None,
+        help="Path to Python file or directory to scan (alternative to positional argument).",
     )
     parser.add_argument(
         "-f",
         "--format",
-        choices=["console", "json"],
+        choices=["console", "json", "markdown"],
         default="console",
         help="Output report format (default: console).",
     )
@@ -137,6 +145,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Return exit code 1 if syntax errors or issues are found (default: True).",
     )
     parser.add_argument(
+        "--github-summary",
+        nargs="?",
+        const="AUTO_ENV",
+        default=None,
+        help="Write GitHub Step Summary markdown to file path (or $GITHUB_STEP_SUMMARY if flag passed without value).",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="LeakGuard 0.1.0 (Python AST Static Analyzer)",
@@ -149,9 +164,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     arg_parser = build_parser()
     args = arg_parser.parse_args(argv)
 
-    target_path = Path(args.path)
+    target_str = args.target or args.path or "."
+    target_path = Path(target_str)
     if not target_path.exists():
-        sys.stderr.write(f"Error: Target path '{args.path}' does not exist.\n")
+        sys.stderr.write(f"Error: Target path '{target_str}' does not exist.\n")
         return 2
 
     # Perform AST scanning
@@ -160,6 +176,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Determine reporter
     if args.format == "json":
         reporter = JSONReporter(stream=sys.stdout)
+    elif args.format == "markdown":
+        reporter = MarkdownReporter(stream=sys.stdout)
     else:
         reporter = ConsoleReporter(stream=sys.stdout, use_color=not args.no_color)
 
@@ -172,11 +190,28 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             with open(args.output, "w", encoding="utf-8") as out_f:
                 if args.format == "json":
                     out_reporter = JSONReporter(stream=out_f)
+                elif args.format == "markdown":
+                    out_reporter = MarkdownReporter(stream=out_f)
                 else:
                     out_reporter = ConsoleReporter(stream=out_f, use_color=False)
                 out_reporter.report(report)
         except OSError as err:
             sys.stderr.write(f"Error writing to output file '{args.output}': {err}\n")
+
+    # Optional GitHub Step Summary output
+    summary_target = args.github_summary
+    if summary_target == "AUTO_ENV":
+        summary_target = os.environ.get("GITHUB_STEP_SUMMARY")
+
+    if summary_target:
+        try:
+            summary_path = Path(summary_target)
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            mode = "a" if summary_path.exists() else "w"
+            with open(summary_path, mode, encoding="utf-8") as sum_f:
+                MarkdownReporter(stream=sum_f).report(report)
+        except OSError as err:
+            sys.stderr.write(f"Warning: Failed to write GitHub Step Summary to '{summary_target}': {err}\n")
 
     # Exit code determination
     if args.strict and report.has_errors_or_issues:
