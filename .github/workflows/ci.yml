@@ -75,4 +75,5 @@ jobs:
 
       - name: Verify SARIF export format
         run: |
-          python cli.py --target python/leaks/ -f sarif -o results.sarif
+          python cli.py --target python/leaks/ --baseline leak_baseline.json -f sarif -o results.sarif
+          test -f results.sarif
