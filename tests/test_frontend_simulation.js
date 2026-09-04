@@ -66,7 +66,9 @@ function createMockDOM() {
     'admin-val-projects', 'admin-val-scans', 'admin-val-open-leaks', 'admin-val-high-severity', 'admin-val-ci-blocked',
     'admin-projects-count', 'admin-projects-tbody',
     'admin-project-detail', 'btn-close-project-detail', 'detail-project-name', 'detail-project-sub', 'detail-project-health-badge',
-    'detail-files-scanned', 'detail-clean-files', 'detail-syntax-errors', 'detail-leaks', 'detail-findings-container', 'detail-history-tbody',
+    'detail-project-score-badge', 'detail-ci-context', 'ci-source', 'ci-repo', 'ci-branch', 'ci-commit', 'ci-pr', 'ci-run',
+    'detail-files-scanned', 'detail-clean-files', 'detail-syntax-errors', 'detail-leaks', 'detail-new-leaks', 'detail-baseline-leaks',
+    'detail-findings-container', 'detail-history-tbody',
     'admin-scans-count', 'admin-scans-tbody',
     'analytics-empty-state', 'analytics-content', 'analytics-resource-list', 'analytics-project-list', 'analytics-ci-box'
   ];
@@ -292,34 +294,62 @@ async function runTest() {
             name: 'LeakGuard Test Repo',
             repo: 'owner/leakguard-test',
             branch: 'main',
-            health: 'AT_RISK'
+            health: 'AT_RISK',
+            health_score: 75
           },
           latest_scan: {
             scan_id: 'scan_12345678abcdef',
-            files_scanned: 1,
+            scan_type: 'CI',
+            commit_sha: 'abcdef1234',
+            pull_request: '#42',
+            workflow_run: '99887766',
+            branch: 'main',
+            repository: 'owner/leakguard-test',
+            files_scanned: 2,
             clean_files: 0,
             syntax_errors: 0,
-            leaks_detected: 1,
+            leaks_detected: 2,
+            new_leaks: 1,
+            baseline_leaks: 1,
+            health_score: 75,
             status: 'FAILED'
           },
-          open_findings: [{
-            finding_id: 'f1',
-            file_path: 'python/leaks/sqlite_leak.py',
-            line_number: 5,
-            severity: 'HIGH',
-            resource_type: 'SQLite connection',
-            message: 'Unclosed connection',
-            leak_path: 'open -> return',
-            recommendation: 'Close connection'
-          }],
+          open_findings: [
+            {
+              finding_id: 'f1',
+              file: 'python/leaks/sqlite_leak.py',
+              line: 5,
+              severity: 'HIGH',
+              resource: 'SQLite connection',
+              reason: 'Unclosed connection',
+              leak_path: 'open -> return',
+              recommendation: 'Close connection',
+              is_baseline: false
+            },
+            {
+              finding_id: 'f2',
+              file: 'python/leaks/file_no_close.py',
+              line: 15,
+              severity: 'HIGH',
+              resource: 'f (file)',
+              reason: 'Unclosed file',
+              leak_path: 'open -> exit',
+              recommendation: 'Use with open',
+              is_baseline: true
+            }
+          ],
           history: [{
             scan_id: 'scan_12345678abcdef',
+            scan_type: 'CI',
             timestamp: '2026-09-04T12:00:00Z',
             target: 'python/leaks',
-            files_scanned: 1,
+            files_scanned: 2,
             clean_files: 0,
-            leaks_detected: 1,
-            duration_seconds: 0.005,
+            leaks_detected: 2,
+            new_leaks: 1,
+            baseline_leaks: 1,
+            health_score: 75,
+            duration_ms: 12.5,
             status: 'FAILED'
           }]
         })
@@ -437,9 +467,14 @@ async function runTest() {
 
   console.assert(elements['admin-project-detail'].style.display === 'block', 'Detail drawer should be visible');
   console.assert(elements['detail-project-name'].textContent === 'LeakGuard Test Repo', 'Project name should match');
-  console.assert(String(elements['detail-leaks'].textContent) === '1', 'Detail leaks count should be 1');
+  console.assert(String(elements['detail-leaks'].textContent) === '2', 'Detail leaks count should be 2');
+  console.assert(String(elements['detail-new-leaks'].textContent) === '1', 'Detail new leaks count should be 1');
+  console.assert(String(elements['detail-baseline-leaks'].textContent) === '1', 'Detail baseline leaks count should be 1');
+  console.assert(elements['detail-project-score-badge'].textContent.includes('Score: 75 / 100'), 'Score badge should render');
   console.assert(elements['detail-findings-container'].innerHTML.includes('SQLite connection'), 'Detail findings should display open leak');
-  console.log('  PASS: Project drilldown rendered findings and history.');
+  console.assert(elements['detail-findings-container'].innerHTML.includes('NEW LEAK (BLOCKING)'), 'Findings should show new leak tag');
+  console.assert(elements['detail-findings-container'].innerHTML.includes('BASELINE (TOLERATED)'), 'Findings should show baseline tag');
+  console.log('  PASS: Project drilldown rendered findings, score, and new/baseline metrics.');
 
   console.log('[TEST 10] Switch back to Developer view:');
   const devTabFn = listeners['tab-dev:click'];
@@ -498,7 +533,19 @@ async function runTest() {
   console.assert(elements['admin-scans-tbody'].innerHTML.includes('PROJECT UPLOAD'), 'Admin table should render PROJECT UPLOAD tag');
   console.log('  PASS: Scan Type badges correctly displayed in Admin view.');
 
-  console.log('\nALL 13 FRONTEND SIMULATION TESTS (DEVELOPER + ADMIN + UPLOADS) PASSED SUCCESSFULLY!');
+  console.log('[TEST 14] Verify CI / PR Security Intelligence context and metadata:');
+  await detailBtnFn();
+  await new Promise(r => setTimeout(r, 60));
+  console.assert(elements['detail-ci-context'].style.display === 'block', 'CI context card should be visible for CI scan');
+  console.assert(elements['ci-source'].innerHTML.includes('CI'), 'CI source badge should render');
+  console.assert(elements['ci-repo'].textContent === 'owner/leakguard-test', 'CI repository should display correctly');
+  console.assert(elements['ci-branch'].textContent === 'main', 'CI branch should display correctly');
+  console.assert(elements['ci-commit'].textContent === 'abcdef1234', 'CI commit should display short SHA');
+  console.assert(elements['ci-pr'].textContent === '#42', 'CI PR should display correctly');
+  console.assert(elements['ci-run'].textContent === '99887766', 'CI workflow run should display correctly');
+  console.log('  PASS: CI Intelligence card, PR attribution, and commit context validated successfully.');
+
+  console.log('\nALL 14 FRONTEND SIMULATION TESTS (DEVELOPER + ADMIN + UPLOADS + CI INTELLIGENCE) PASSED SUCCESSFULLY!');
 }
 
 runTest().catch(err => {

@@ -431,10 +431,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const detailProjectName = document.getElementById('detail-project-name');
   const detailProjectSub = document.getElementById('detail-project-sub');
   const detailProjectHealthBadge = document.getElementById('detail-project-health-badge');
+  const detailProjectScoreBadge = document.getElementById('detail-project-score-badge');
+  const detailCiContext = document.getElementById('detail-ci-context');
+  const ciSource = document.getElementById('ci-source');
+  const ciRepo = document.getElementById('ci-repo');
+  const ciBranch = document.getElementById('ci-branch');
+  const ciCommit = document.getElementById('ci-commit');
+  const ciPr = document.getElementById('ci-pr');
+  const ciRun = document.getElementById('ci-run');
   const detailFilesScanned = document.getElementById('detail-files-scanned');
   const detailCleanFiles = document.getElementById('detail-clean-files');
   const detailSyntaxErrors = document.getElementById('detail-syntax-errors');
   const detailLeaks = document.getElementById('detail-leaks');
+  const detailNewLeaks = document.getElementById('detail-new-leaks');
+  const detailBaselineLeaks = document.getElementById('detail-baseline-leaks');
   const detailFindingsContainer = document.getElementById('detail-findings-container');
   const detailHistoryTbody = document.getElementById('detail-history-tbody');
 
@@ -564,7 +574,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!projects || projects.length === 0) {
       adminProjectsTbody.innerHTML = `
         <tr>
-          <td colspan="8" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
+          <td colspan="9" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
         </tr>
       `;
       return;
@@ -580,6 +590,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const lastStatus = latestScan ? latestScan.status : (p.last_status || 'NOT_SCANNED');
       const openLeaks = latestScan ? (latestScan.leaks_detected ?? 0) : (p.open_leaks ?? 0);
       const lastScanTime = latestScan ? latestScan.timestamp : p.last_scan;
+      const scanType = latestScan ? (latestScan.scan_type || 'LOCAL SCAN') : 'LOCAL SCAN';
+      const score = (latestScan && latestScan.health_score !== undefined) ? latestScan.health_score : (p.health_score ?? 100);
 
       let healthBadge = '<span class="badge badge-healthy">HEALTHY</span>';
       if (health === 'AT_RISK') {
@@ -589,6 +601,10 @@ document.addEventListener('DOMContentLoaded', () => {
       } else if (health === 'NOT_SCANNED') {
         healthBadge = '<span class="badge badge-not-scanned">NOT SCANNED</span>';
       }
+
+      let scoreClass = 'badge-score-healthy';
+      if (score < 60) scoreClass = 'badge-score-at-risk';
+      else if (score < 85) scoreClass = 'badge-score-review';
 
       let ciBadge = '<span class="ci-status-tag unscanned">PENDING</span>';
       if (lastStatus === 'PASS') {
@@ -600,15 +616,27 @@ document.addEventListener('DOMContentLoaded', () => {
       const formattedTime = lastScanTime ? formatLocalTime(new Date(lastScanTime)) : 'Never';
       const leaksClass = openLeaks > 0 ? 'text-amber' : 'text-green';
 
+      let leakBreakdown = '';
+      if (latestScan && (latestScan.baseline_leaks > 0 || latestScan.new_leaks > 0)) {
+        leakBreakdown = `<div style="font-size:0.72rem; color:var(--text-secondary); margin-top:2px;">${latestScan.new_leaks || 0} new &bull; ${latestScan.baseline_leaks || 0} base</div>`;
+      }
+
       return `
         <tr>
           <td><strong>${escapeHtml(projName)}</strong></td>
           <td><code>${escapeHtml(repoName)}</code></td>
           <td><span class="badge">${escapeHtml(branchName)}</span></td>
+          <td>${getScanTypeTag(scanType)}</td>
           <td class="code-loc">${escapeHtml(formattedTime)}</td>
-          <td><span class="${leaksClass}"><strong>${escapeHtml(String(openLeaks))}</strong></span></td>
+          <td>
+            <span class="${leaksClass}"><strong>${escapeHtml(String(openLeaks))}</strong></span>
+            ${leakBreakdown}
+          </td>
           <td>${ciBadge}</td>
-          <td>${healthBadge}</td>
+          <td>
+            <span class="badge ${scoreClass}">${score} / 100</span>
+            ${healthBadge}
+          </td>
           <td>
             <button class="btn btn-secondary btn-sm btn-project-detail" data-project-id="${escapeHtml(projId)}">Details</button>
           </td>
@@ -782,10 +810,38 @@ document.addEventListener('DOMContentLoaded', () => {
         detailProjectHealthBadge.className = `badge ${health === 'HEALTHY' ? 'badge-healthy' : (health === 'AT_RISK' ? 'badge-at-risk' : (health === 'NOT_SCANNED' ? 'badge-not-scanned' : 'badge-review'))}`;
       }
 
+      const score = (latest && latest.health_score !== undefined) ? latest.health_score : (p.health_score ?? 100);
+      let scoreClass = 'badge-score-healthy';
+      if (score < 60) scoreClass = 'badge-score-at-risk';
+      else if (score < 85) scoreClass = 'badge-score-review';
+
+      if (detailProjectScoreBadge) {
+        detailProjectScoreBadge.textContent = `Score: ${score} / 100`;
+        detailProjectScoreBadge.className = `badge ${scoreClass}`;
+      }
+
+      // CI Context Card
+      if (detailCiContext) {
+        const isCI = (latest.scan_type === 'CI') || Boolean(latest.commit_sha || latest.pull_request || latest.workflow_run);
+        if (isCI) {
+          detailCiContext.style.display = 'block';
+          if (ciSource) ciSource.innerHTML = getScanTypeTag(latest.scan_type || 'CI');
+          if (ciRepo) ciRepo.textContent = latest.repository || p.repository || 'Ritik-hub2024/VH26-AlgoMinds';
+          if (ciBranch) ciBranch.textContent = latest.branch || p.branch || 'main';
+          if (ciCommit) ciCommit.textContent = latest.commit_sha ? latest.commit_sha.substring(0, 10) : '-';
+          if (ciPr) ciPr.textContent = latest.pull_request || 'None (Direct Push)';
+          if (ciRun) ciRun.textContent = latest.workflow_run || '-';
+        } else {
+          detailCiContext.style.display = 'none';
+        }
+      }
+
       if (detailFilesScanned) detailFilesScanned.textContent = latest.files_scanned || 0;
       if (detailCleanFiles) detailCleanFiles.textContent = latest.clean_files || 0;
       if (detailSyntaxErrors) detailSyntaxErrors.textContent = latest.syntax_errors || 0;
       if (detailLeaks) detailLeaks.textContent = latest.leaks_detected || 0;
+      if (detailNewLeaks) detailNewLeaks.textContent = latest.new_leaks !== undefined ? latest.new_leaks : (latest.leaks_detected || 0);
+      if (detailBaselineLeaks) detailBaselineLeaks.textContent = latest.baseline_leaks || 0;
 
       // Findings
       if (detailFindingsContainer) {
@@ -805,12 +861,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const lineNum = f.line || f.line_number || '-';
             const resource = f.resource || f.resource_type || 'Resource';
             const reason = f.reason || f.message || f.problem || 'Resource leak detected';
+            const isBaseline = Boolean(f.is_baseline);
+            const baselineBadge = isBaseline
+              ? '<span class="badge badge-baseline-tolerated">BASELINE (TOLERATED)</span>'
+              : '<span class="badge badge-new-leak">NEW LEAK (BLOCKING)</span>';
 
             return `
               <article class="finding-card severity-high" tabindex="0">
                 <div class="finding-header">
                   <div class="finding-title-group">
                     <span class="badge ${badgeClass}">${escapeHtml(severity)}</span>
+                    ${baselineBadge}
                     <div class="finding-file-info">
                       <span class="finding-file-path">${escapeHtml(filePath)}</span>
                       <span class="finding-line-badge">Line ${escapeHtml(String(lineNum))}</span>
@@ -847,7 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (history.length === 0) {
           detailHistoryTbody.innerHTML = `
             <tr>
-              <td colspan="9" class="empty-state">No historical scans recorded.</td>
+              <td colspan="10" class="empty-state">No historical scans recorded.</td>
             </tr>
           `;
         } else {
@@ -857,6 +918,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const durMs = h.duration_ms !== undefined ? `${Number(h.duration_ms).toFixed(1)}ms` : (h.duration_seconds ? `${Number(h.duration_seconds).toFixed(4)}s` : '-');
             const statusBadge = h.status === 'PASS' ? '<span class="ci-status-tag pass">PASSED</span>' : '<span class="ci-status-tag failed">FAILED</span>';
             const typeTag = getScanTypeTag(h.scan_type);
+            const hScore = (h.health_score !== undefined) ? h.health_score : 100;
+            let hScoreClass = 'badge-score-healthy';
+            if (hScore < 60) hScoreClass = 'badge-score-at-risk';
+            else if (hScore < 85) hScoreClass = 'badge-score-review';
 
             return `
               <tr>
@@ -866,8 +931,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td><code>${escapeHtml(h.target)}</code></td>
                 <td>${escapeHtml(String(h.files_scanned))}</td>
                 <td>${escapeHtml(String(h.clean_files))}</td>
-                <td><span class="${h.leaks_detected > 0 ? 'text-amber' : 'text-green'}"><strong>${escapeHtml(String(h.leaks_detected))}</strong></span></td>
+                <td>
+                  <span class="${h.leaks_detected > 0 ? 'text-amber' : 'text-green'}"><strong>${escapeHtml(String(h.leaks_detected))}</strong></span>
+                  <small style="color:var(--text-secondary); margin-left:4px;">(${h.new_leaks || 0} / ${h.baseline_leaks || 0})</small>
+                </td>
                 <td>${escapeHtml(durMs)}</td>
+                <td><span class="badge ${hScoreClass}">${hScore} / 100</span></td>
                 <td>${statusBadge}</td>
               </tr>
             `;

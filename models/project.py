@@ -1,5 +1,7 @@
 """Domain models for product-level project tracking and scan history."""
 
+import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -22,6 +24,69 @@ class ScanStatus(str, Enum):
 
 
 @dataclass
+class CIMetadata:
+    """Structured continuous integration execution metadata."""
+    source: str = "CI"
+    repository: Optional[str] = None
+    branch: Optional[str] = None
+    commit_sha: Optional[str] = None
+    pull_request: Optional[str] = None
+    workflow_run: Optional[str] = None
+    workflow_name: Optional[str] = None
+    actor: Optional[str] = None
+
+    @classmethod
+    def from_env(cls, overrides: Optional[Dict[str, Any]] = None) -> "CIMetadata":
+        """Extract CI metadata from standard environment variables (GitHub Actions, etc)."""
+        overrides = overrides or {}
+
+        # Repository
+        repo = overrides.get("repository") or os.environ.get("GITHUB_REPOSITORY")
+
+        # Branch
+        branch = overrides.get("branch") or os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_HEAD_REF")
+
+        # Commit SHA
+        sha = overrides.get("commit_sha") or os.environ.get("GITHUB_SHA")
+
+        # Pull Request number
+        pr = overrides.get("pull_request")
+        if not pr:
+            ref = os.environ.get("GITHUB_REF", "")
+            m = re.match(r"^refs/pull/(\d+)/", ref)
+            if m:
+                pr = f"#{m.group(1)}"
+
+        # Workflow run ID
+        run_id = overrides.get("workflow_run") or os.environ.get("GITHUB_RUN_ID")
+        workflow_name = overrides.get("workflow_name") or os.environ.get("GITHUB_WORKFLOW")
+        actor = overrides.get("actor") or os.environ.get("GITHUB_ACTOR")
+
+        return cls(
+            source="CI",
+            repository=repo or None,
+            branch=branch or None,
+            commit_sha=sha or None,
+            pull_request=pr or None,
+            workflow_run=str(run_id) if run_id else None,
+            workflow_name=workflow_name or None,
+            actor=actor or None,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "source": self.source,
+            "repository": self.repository,
+            "branch": self.branch,
+            "commit_sha": self.commit_sha,
+            "pull_request": self.pull_request,
+            "workflow_run": self.workflow_run,
+            "workflow_name": self.workflow_name,
+            "actor": self.actor,
+        }
+
+
+@dataclass
 class FindingRecord:
     """Persistent representation of an individual detected resource leak or issue."""
     finding_id: str
@@ -36,6 +101,7 @@ class FindingRecord:
     leak_path: str
     recommendation: str
     cleanup_status: str = "UNCLOSED"
+    is_baseline: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -51,6 +117,7 @@ class FindingRecord:
             "leak_path": self.leak_path,
             "recommendation": self.recommendation,
             "cleanup_status": self.cleanup_status,
+            "is_baseline": self.is_baseline,
         }
 
 
@@ -68,6 +135,14 @@ class ScanRecord:
     status: str
     duration_ms: float
     scan_type: str = "LOCAL SCAN"
+    commit_sha: Optional[str] = None
+    branch: Optional[str] = None
+    repository: Optional[str] = None
+    pull_request: Optional[str] = None
+    workflow_run: Optional[str] = None
+    new_leaks: int = 0
+    baseline_leaks: int = 0
+    health_score: int = 100
     findings: List[FindingRecord] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,6 +158,14 @@ class ScanRecord:
             "leaks_detected": self.leaks_detected,
             "status": self.status,
             "duration_ms": self.duration_ms,
+            "commit_sha": self.commit_sha,
+            "branch": self.branch,
+            "repository": self.repository,
+            "pull_request": self.pull_request,
+            "workflow_run": self.workflow_run,
+            "new_leaks": self.new_leaks,
+            "baseline_leaks": self.baseline_leaks,
+            "health_score": self.health_score,
             "findings_count": len(self.findings),
             "findings": [f.to_dict() for f in self.findings],
         }
@@ -96,6 +179,7 @@ class Project:
     repository: str
     branch: str
     status: str = ProjectHealth.NOT_SCANNED.value
+    health_score: int = 100
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     latest_scan: Optional[ScanRecord] = None
@@ -107,6 +191,7 @@ class Project:
             "repository": self.repository,
             "branch": self.branch,
             "status": self.status,
+            "health_score": self.health_score,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "latest_scan": self.latest_scan.to_dict() if self.latest_scan else None,

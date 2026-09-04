@@ -249,16 +249,17 @@
                   <th>Project</th>
                   <th>Repository</th>
                   <th>Branch</th>
+                  <th>Source</th>
                   <th>Last Scan</th>
                   <th>Open Leaks</th>
                   <th>CI Status</th>
-                  <th>Health</th>
+                  <th>Health Score</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="admin-projects-tbody">
                 <tr>
-                  <td colspan="8" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
+                  <td colspan="9" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
                 </tr>
               </tbody>
             </table>
@@ -275,7 +276,25 @@
               </div>
               <p class="panel-subtitle" id="detail-project-sub">Repository and branch info</p>
             </div>
-            <span class="badge" id="detail-project-health-badge">HEALTHY</span>
+            <div class="detail-header-badges">
+              <span class="badge badge-score-healthy" id="detail-project-score-badge">Score: 100 / 100</span>
+              <span class="badge" id="detail-project-health-badge">HEALTHY</span>
+            </div>
+          </div>
+
+          <!-- CI / PR Intelligence Context Card -->
+          <div class="ci-context-card" id="detail-ci-context" style="display: none;">
+            <div class="ci-context-title">
+              <span class="ci-icon">⚡</span> <strong>CI / PR Execution Intelligence</strong>
+            </div>
+            <div class="ci-context-grid">
+              <div class="ci-item"><span class="ci-label">Execution Source</span> <span id="ci-source" class="scan-type-tag ci">CI</span></div>
+              <div class="ci-item"><span class="ci-label">Repository</span> <code id="ci-repo">-</code></div>
+              <div class="ci-item"><span class="ci-label">Target Branch</span> <span id="ci-branch" class="badge">-</span></div>
+              <div class="ci-item"><span class="ci-label">Commit SHA</span> <code id="ci-commit">-</code></div>
+              <div class="ci-item"><span class="ci-label">Pull Request</span> <span id="ci-pr" class="badge">-</span></div>
+              <div class="ci-item"><span class="ci-label">Workflow Run</span> <code id="ci-run">-</code></div>
+            </div>
           </div>
 
           <div class="detail-grid">
@@ -292,8 +311,16 @@
               <div class="stat-value text-red" id="detail-syntax-errors">0</div>
             </div>
             <div class="detail-stat">
-              <div class="stat-label">Detected Leaks</div>
+              <div class="stat-label">Total Leaks</div>
               <div class="stat-value text-amber" id="detail-leaks">0</div>
+            </div>
+            <div class="detail-stat">
+              <div class="stat-label">New Leaks (Blocking)</div>
+              <div class="stat-value text-red" id="detail-new-leaks">0</div>
+            </div>
+            <div class="detail-stat">
+              <div class="stat-label">Baseline (Tolerated)</div>
+              <div class="stat-value" id="detail-baseline-leaks" style="color: #c084fc;">0</div>
             </div>
           </div>
 
@@ -313,19 +340,20 @@
                 <thead>
                   <tr>
                     <th>Scan ID</th>
-                    <th>Type</th>
+                    <th>Source</th>
                     <th>Timestamp</th>
                     <th>Target</th>
                     <th>Files Scanned</th>
                     <th>Clean Files</th>
-                    <th>Leaks Detected</th>
+                    <th>Leaks (New / Base)</th>
                     <th>Duration</th>
+                    <th>Score</th>
                     <th>CI Status</th>
                   </tr>
                 </thead>
                 <tbody id="detail-history-tbody">
                   <tr>
-                    <td colspan="9" class="empty-state">No historical scans recorded.</td>
+                    <td colspan="10" class="empty-state">No historical scans recorded.</td>
                   </tr>
                 </tbody>
               </table>

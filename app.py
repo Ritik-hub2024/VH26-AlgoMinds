@@ -85,7 +85,38 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if parsed.path in ("/api/scan/upload", "/api/upload"):
             self._handle_api_upload()
             return
+        if parsed.path == "/api/admin/ingest":
+            self._handle_admin_ingest()
+            return
         self._send_json({"error": f"Endpoint '{parsed.path}' not found.", "status": "ERROR"}, status=404)
+
+    def _handle_admin_ingest(self):
+        content_len = self.headers.get("Content-Length")
+        if not content_len:
+            self._send_json({"status": "ERROR", "error": "Missing Content-Length header."}, status=400)
+            return
+
+        try:
+            length = int(content_len)
+            body = self.rfile.read(length)
+            payload = json.loads(body.decode("utf-8"))
+        except Exception as parse_err:
+            self._send_json({"status": "ERROR", "error": f"Invalid JSON body: {parse_err}"}, status=400)
+            return
+
+        if not isinstance(payload, dict):
+            self._send_json({"status": "ERROR", "error": "Payload must be a JSON object."}, status=400)
+            return
+
+        try:
+            scan_rec = self.db.ingest_ci_result(payload)
+            self._send_json({
+                "status": "SUCCESS",
+                "message": f"Successfully ingested CI result into project '{scan_rec.project_id}'.",
+                "scan": scan_rec.to_dict(),
+            })
+        except Exception as e:
+            self._send_json({"status": "ERROR", "error": f"Failed to ingest CI result: {e}"}, status=500)
 
     def _handle_admin_summary(self):
         try:

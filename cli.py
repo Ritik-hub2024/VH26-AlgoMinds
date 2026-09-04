@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Sequence, Optional
 
@@ -188,6 +189,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Project identifier to associate scan with when --record is used.",
     )
     parser.add_argument(
+        "--ci-export",
+        type=str,
+        default=None,
+        help="Export portable CI analysis result artifact JSON (e.g. leakguard-ci-result.json).",
+    )
+    parser.add_argument(
+        "--ingest",
+        type=str,
+        default=None,
+        help="Ingest a portable CI result JSON file into local SQLite database for Admin view.",
+    )
+    parser.add_argument(
         "--version",
         action="version",
         version="LeakGuard 0.1.0 (Python AST Static Analyzer)",
@@ -199,6 +212,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     """CLI execution entrypoint."""
     arg_parser = build_parser()
     args = arg_parser.parse_args(argv)
+
+    # Fast-path for --ingest
+    if args.ingest:
+        ingest_path = Path(args.ingest)
+        if not ingest_path.exists():
+            sys.stderr.write(f"Error: Ingest file '{args.ingest}' does not exist.\n")
+            return 2
+        try:
+            with open(ingest_path, "r", encoding="utf-8") as f:
+                ci_payload = json.load(f)
+            from storage.database import Database
+            db = Database()
+            scan_rec = db.ingest_ci_result(ci_payload)
+            print(f"Successfully ingested CI result into project '{scan_rec.project_id}' (Scan ID: {scan_rec.scan_id}, Status: {scan_rec.status}, Score: {scan_rec.health_score}).")
+            return 0
+        except Exception as err:
+            sys.stderr.write(f"Error ingesting CI result '{args.ingest}': {err}\n")
+            return 1
 
     target_str = args.target or args.path or "."
     target_path = Path(target_str)
@@ -288,37 +319,141 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         except OSError as err:
             sys.stderr.write(f"Warning: Failed to write GitHub Step Summary to '{summary_target}': {err}\n")
 
+    # Determine exit code
+    if not args.strict:
+        final_exit_code = 0
+    elif args.baseline:
+        final_exit_code = diff_report.exit_code
+    elif report.has_errors_or_issues:
+        final_exit_code = 1
+    else:
+        final_exit_code = 0
+
+    ci_status = "PASS" if final_exit_code == 0 else "FAILED"
+
+    # Compute baseline vs new finding metrics
+    baseline_fps = set()
+    if diff_report and diff_report.baseline_fingerprints:
+        baseline_fps = diff_report.baseline_fingerprints
+
+    prepared_findings = []
+    new_leaks_count = 0
+    baseline_leaks_count = 0
+    for issue in report.issues:
+        fp = compute_finding_fingerprint(issue, base_dir=str(target_path))
+        is_bl = fp in baseline_fps
+        if is_bl:
+            baseline_leaks_count += 1
+        else:
+            new_leaks_count += 1
+        prepared_findings.append({
+            "file": issue.location.file_path,
+            "line": issue.location.line,
+            "column": issue.location.column,
+            "resource": f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else issue.resource_type,
+            "variable": issue.resource_name or "f",
+            "severity": issue.severity.value if hasattr(issue.severity, "value") else str(issue.severity),
+            "reason": issue.message or issue.problem,
+            "leak_path": issue.leak_path or "",
+            "recommendation": issue.recommendation or "",
+            "cleanup_status": "UNCLOSED",
+            "is_baseline": is_bl,
+            "fingerprint": fp,
+        })
+
+    syntax_err_list = [
+        se.to_dict() if hasattr(se, "to_dict") else {
+            "filename": getattr(se, "filename", ""),
+            "line": getattr(se, "line", 0),
+            "column": getattr(se, "column", 0),
+            "message": getattr(se, "message", ""),
+            "text": getattr(se, "text", ""),
+        }
+        for se in report.syntax_errors
+    ]
+
+    # Optional CI result artifact export
+    if args.ci_export:
+        try:
+            from models.project import CIMetadata
+            from storage.database import calculate_health_score
+            ci_meta = CIMetadata.from_env()
+
+            score, _ = calculate_health_score(
+                prepared_findings,
+                syntax_err_list,
+                ci_status,
+                new_leaks=new_leaks_count,
+                baseline_leaks=baseline_leaks_count,
+            )
+
+            ci_export_path = Path(args.ci_export)
+            ci_export_path.parent.mkdir(parents=True, exist_ok=True)
+            norm_target = str(target_path).replace("\\", "/")
+            if "python/leaks" in norm_target:
+                auto_proj_id = "python-leaks"
+            elif "python/safe" in norm_target:
+                auto_proj_id = "python-safe"
+            elif "python/syntax" in norm_target:
+                auto_proj_id = "python-syntax"
+            else:
+                auto_proj_id = "leakguard-core"
+
+            ci_result_payload = {
+                "version": "1.0",
+                "source": "CI",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "project_id": args.project_id or auto_proj_id,
+                "target": norm_target,
+                "status": ci_status,
+                "health_score": score,
+                "summary": {
+                    "files_scanned": report.files_scanned,
+                    "clean_files": report.clean_files_count,
+                    "syntax_errors": len(report.syntax_errors),
+                    "total_leaks": len(report.issues),
+                    "new_leaks": new_leaks_count,
+                    "baseline_leaks": baseline_leaks_count,
+                    "duration_ms": round(report.duration_seconds * 1000, 2),
+                },
+                "ci_metadata": ci_meta.to_dict(),
+                "findings": prepared_findings,
+                "syntax_errors": syntax_err_list,
+            }
+
+            with open(ci_export_path, "w", encoding="utf-8") as cef:
+                json.dump(ci_result_payload, cef, indent=2)
+        except Exception as exp_err:
+            sys.stderr.write(f"Warning: Failed to export CI result to '{args.ci_export}': {exp_err}\n")
+
     # Optional database persistence for Admin dashboard
     if args.record:
         try:
             from storage.database import Database
+            from models.project import CIMetadata
             db = Database()
-            scan_type = "CI" if (os.environ.get("GITHUB_ACTIONS") or summary_target) else "LOCAL SCAN"
+            is_ci = bool(os.environ.get("GITHUB_ACTIONS") or summary_target)
+            scan_type = "CI" if is_ci else "LOCAL SCAN"
+            ci_meta = CIMetadata.from_env() if is_ci else None
+
             db.record_scan(
                 report=report,
                 project_id=args.project_id,
                 target_override=str(target_path),
                 scan_type=scan_type,
+                commit_sha=ci_meta.commit_sha if ci_meta else None,
+                branch=ci_meta.branch if ci_meta and ci_meta.branch else "main",
+                repository=ci_meta.repository if ci_meta and ci_meta.repository else "Ritik-hub2024/VH26-AlgoMinds",
+                pull_request=ci_meta.pull_request if ci_meta else None,
+                workflow_run=ci_meta.workflow_run if ci_meta else None,
+                prepared_findings=prepared_findings,
+                new_leaks=new_leaks_count,
+                baseline_leaks=baseline_leaks_count,
             )
         except Exception as rec_err:
             sys.stderr.write(f"Warning: Failed to record scan to database: {rec_err}\n")
 
-    # Exit code determination:
-    # 1. Non-strict mode always exits 0.
-    if not args.strict:
-        return 0
-
-    # 2. When a baseline is provided, exit code is driven by DifferentialReport:
-    #    - Syntax errors ALWAYS exit 1.
-    #    - Any new blocking severity leak exits 1.
-    #    - Existing baseline findings do NOT block (exit 0).
-    if args.baseline:
-        return diff_report.exit_code
-
-    # 3. Without baseline, preserve standard backward compatibility (exit 1 on any error/issue).
-    if report.has_errors_or_issues:
-        return 1
-    return 0
+    return final_exit_code
 
 
 if __name__ == "__main__":
