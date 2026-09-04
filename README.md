@@ -267,7 +267,7 @@ LeakGuard/
 │   ├── run_benchmark.py   # Automated corpus benchmark runner
 │   └── benchmark_parser.py# AST parsing throughput micro-benchmark
 │
-└── tests/                 # Comprehensive test suite (133 passing tests)
+└── tests/                 # Comprehensive test suite (193 passing tests)
     ├── __init__.py
     ├── test_parser.py     # AST parser & syntax error tests
     ├── test_cli.py        # CLI discovery & scanning tests
@@ -280,6 +280,8 @@ LeakGuard/
     ├── test_admin_api.py  # Admin dashboard & analytics tests
     ├── test_upload.py     # Unified developer file/folder upload tests
     ├── test_server.py     # Local server & API tests
+    ├── test_ownership_analysis.py # Ownership, reassignment & alias tests
+    ├── test_benchmark.py  # Expanded 46-case benchmark verification tests
     └── test_frontend_simulation.js # Browser DOM & interactive simulation tests
 ```
 
@@ -303,18 +305,75 @@ python cli.py python/ --format json
 ### 2. Run Tests
 Ensure all tests pass using `pytest`:
 ```bash
-# Run full consolidated test suite (133 tests)
+# Run full consolidated test suite (193 tests)
 python -m pytest tests/ -v
 
-# Run browser simulation tests (13 tests)
+# Run browser simulation tests (14 tests)
 node tests/test_frontend_simulation.js
 ```
 
 ### 3. Run Benchmark
-Run the automated benchmark on the 12-file canonical corpus:
+Run the automated benchmark on the expanded 46-file canonical corpus:
 ```bash
 python benchmark/run_benchmark.py
+
+# Optional: Shuffle execution order with seed
+python benchmark/run_benchmark.py --shuffle --seed 42
 ```
+
+---
+
+## Benchmark & Accuracy
+
+LeakGuard features a deterministic, automated benchmark runner that measures static analysis accuracy across **46 canonical test cases** encompassing files, database connections, nested control flow, loop early exits, and conservative ownership tracking.
+
+### Benchmark Quality Metrics
+
+```text
+================================================================================
+  LeakGuard Automated Benchmark — Step 9 Expanded Benchmark (step-9-final)
+  Scope: Intra-procedural AST Resource Lifecycle & Conservative Ownership Analysis
+================================================================================
+ Quality Metrics (Actual Performance on Canonical Corpus):
+   * Total Corpus Cases:      46
+   * True Positives (TP):     16 (detected real leaks)
+   * True Negatives (TN):     16 (verified safe code)
+   * False Positives (FP):    0 (spurious alerts)
+   * False Negatives (FN):    0 (missed leaks)
+   * Ambiguous (UNKNOWN):     10 / 10
+   * Syntax Errors Detected:  4 / 4
+   * Precision:               100.0%
+   * Recall:                  100.0%
+   * F1 Score:                100.0%
+   * Accuracy:                100.0%
+   * Unknown Rate:            21.7%
+--------------------------------------------------------------------------------
+ Comparative Analysis: BEFORE STEP 9 vs AFTER STEP 9
+--------------------------------------------------------------------------------
+Metric                    BEFORE (Step 8)        AFTER (Step 9)        
+--------------------------------------------------------------------------------
+Corpus Cases              21                     46                    
+True Positives (TP)       8                      16                    
+True Negatives (TN)       8                      16                    
+False Positives (FP)      0                      0                     
+False Negatives (FN)      0                      0                     
+Unknown Cases             4                      10                    
+Syntax Errors             1                      4                     
+Precision                 100.0%                 100.0%
+Recall                    100.0%                 100.0%
+F1 Score                  100.0%                 100.0%
+Accuracy                  100.0%                 100.0%
+Unknown Rate              19.0%                  21.7%
+================================================================================
+```
+
+> [!IMPORTANT]
+> **Scope & Honesty Disclaimer**:
+> Metrics are measured strictly on the project's curated benchmark corpus and do not represent universal real-world accuracy across arbitrary third-party codebases.
+> 
+> **Separation of UNKNOWN Cases**:
+> Ambiguous ownership transfers (function arguments, returned resources, object attributes, container storage) are classified as `UNKNOWN` rather than forced into false `SAFE` or false `LEAK`. `UNKNOWN` cases are strictly isolated and reported separately under `Unknown Rate` (21.7%) rather than artificially inflating True Positives or False Positives.
+
 
 ### 4. Run the Web Dashboard
 Launch the interactive security dashboard with live Python AST scanning:

@@ -675,6 +675,31 @@ class BaseResourceLifecycleRule(BaseRule):
                     recommendation = self._recommend_conditional_close(var_name)
                     return "LEAK", body_close, problem, leak_path, recommendation, "LEAK", "LOCAL", "", None
 
+            # 10. Loop statements (for / while)
+            if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+                loop_exit = self._find_unclosed_exit_detail(stmt.body, aliases)
+                if loop_exit:
+                    exit_line, exit_type = loop_exit
+                    problem = (
+                        f"Resource '{var_name}' opened at line {open_line} is not closed due to "
+                        f"{exit_type} inside loop at line {exit_line}."
+                    )
+                    leak_path = f"{base_path} -> L{stmt.lineno}: loop -> L{exit_line}: {exit_type} (leak)"
+                    recommendation = self._recommend_early_return(var_name, exit_line)
+                    return "LEAK", None, problem, leak_path, recommendation, "LEAK", "LOCAL", "", None
+
+                if stmt.orelse:
+                    else_exit = self._find_unclosed_exit_detail(stmt.orelse, aliases)
+                    if else_exit:
+                        exit_line, exit_type = else_exit
+                        problem = (
+                            f"Resource '{var_name}' opened at line {open_line} is not closed in loop else branch "
+                            f"due to {exit_type} at line {exit_line}."
+                        )
+                        leak_path = f"{base_path} -> L{stmt.lineno}: loop else -> L{exit_line}: {exit_type} (leak)"
+                        recommendation = self._recommend_early_return(var_name, exit_line)
+                        return "LEAK", None, problem, leak_path, recommendation, "LEAK", "LOCAL", "", None
+
         # End of loop without close
         if is_attribute:
             problem = f"Resource stored in attribute '{var_name}'. Cleanup cannot be proven within the current analysis scope."
@@ -875,6 +900,15 @@ class BaseResourceLifecycleRule(BaseRule):
                     if exit_else:
                         return exit_else
 
+            if isinstance(s, (ast.For, ast.While)):
+                loop_exit = self._find_unclosed_exit_detail(s.body, names)
+                if loop_exit:
+                    return loop_exit
+                if s.orelse:
+                    exit_else = self._find_unclosed_exit_detail(s.orelse, names)
+                    if exit_else:
+                        return exit_else
+
             if isinstance(s, ast.Try):
                 finally_close = self._find_release_in_stmts(s.finalbody, names)
                 if not finally_close:
@@ -909,6 +943,14 @@ class BaseResourceLifecycleRule(BaseRule):
                 exit_body = self._find_unclosed_return_in_stmts(s.body, names)
                 if exit_body:
                     return exit_body
+                if s.orelse:
+                    exit_else = self._find_unclosed_return_in_stmts(s.orelse, names)
+                    if exit_else:
+                        return exit_else
+            if isinstance(s, (ast.For, ast.While)):
+                loop_ret = self._find_unclosed_return_in_stmts(s.body, names)
+                if loop_ret:
+                    return loop_ret
                 if s.orelse:
                     exit_else = self._find_unclosed_return_in_stmts(s.orelse, names)
                     if exit_else:

@@ -49,10 +49,10 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "FAILED")
-        self.assertEqual(data["files_scanned"], 8)
+        self.assertEqual(data["files_scanned"], 16)
         self.assertEqual(data["clean_files"], 0)
-        self.assertEqual(data["leaks_detected"], 8)
-        self.assertEqual(len(data["findings"]), 8)
+        self.assertEqual(data["leaks_detected"], 16)
+        self.assertEqual(len(data["findings"]), 16)
 
     def test_handle_api_scan_safe_suite(self):
         """Scanning python/safe should return PASS with zero leaks and clean file inventory."""
@@ -60,8 +60,8 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "PASS")
-        self.assertEqual(data["files_scanned"], 8)
-        self.assertEqual(data["clean_files"], 8)
+        self.assertEqual(data["files_scanned"], 16)
+        self.assertEqual(data["clean_files"], 16)
         self.assertEqual(data["leaks_detected"], 0)
         self.assertEqual(len(data["findings"]), 0)
         for file_item in data["files"]:
@@ -73,6 +73,8 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "PASS")
+        self.assertEqual(data["files_scanned"], 1)
+        self.assertEqual(data["clean_files"], 1)
         self.assertEqual(data["leaks_detected"], 0)
         self.assertEqual(len(data["findings"]), 0)
 
@@ -137,9 +139,9 @@ class TestServerHandler(unittest.TestCase):
         data = self._get_response_data()
 
         self.assertEqual(data["status"], "FAILED")
-        self.assertEqual(data["files_scanned"], 1)
-        self.assertEqual(data["syntax_errors"], 1)
-        self.assertEqual(len(data["syntax_errors_list"]), 1)
+        self.assertEqual(data["files_scanned"], 4)
+        self.assertEqual(data["syntax_errors"], 4)
+        self.assertEqual(len(data["syntax_errors_list"]), 4)
 
     def test_static_sample_report_exists_and_valid(self):
         """Verify frontend/static/sample_report.json exists with stable contract."""
@@ -172,10 +174,8 @@ class TestServerHandler(unittest.TestCase):
         self.handler._handle_api_scan("target=python/leaks")
         data2 = self._get_response_data()
         self.assertEqual(data2["status"], "FAILED")
-        self.assertEqual(data2["leaks_detected"], 8)
+        self.assertEqual(data2["leaks_detected"], 16)
 
 
 if __name__ == "__main__":
     unittest.main()
-
-

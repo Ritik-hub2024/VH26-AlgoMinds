@@ -280,7 +280,7 @@ class TestCIResultIngestionAndAttribution:
         assert data["source"] == "CI"
         assert data["status"] == "PASS"
         assert data["health_score"] == 100
-        assert data["summary"]["clean_files"] == 8
+        assert data["summary"]["clean_files"] == 16
 
         # 2. Ingest artifact via cli --ingest using the temporary database
         # Patch default DB path temporarily

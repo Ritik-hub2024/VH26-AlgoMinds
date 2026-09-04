@@ -127,7 +127,7 @@ class TestAdminAPI(unittest.TestCase):
         summary_data = self._get_response_data()
         self.assertEqual(summary_data["summary"]["projects_count"], 2)
         self.assertEqual(summary_data["summary"]["total_scans"], 2)
-        self.assertEqual(summary_data["summary"]["open_leaks"], 8)
+        self.assertEqual(summary_data["summary"]["open_leaks"], 16)
         self.assertEqual(summary_data["summary"]["ci_blocked"], 1)
 
         # 6. Retrieve project detail for python-leaks
@@ -136,7 +136,7 @@ class TestAdminAPI(unittest.TestCase):
         leak_proj = self._get_response_data()
         self.assertEqual(leak_proj["status"], "SUCCESS")
         self.assertEqual(leak_proj["project"]["status"], "AT_RISK")
-        self.assertEqual(len(leak_proj["project"]["open_findings"]), 8)
+        self.assertEqual(len(leak_proj["project"]["open_findings"]), 16)
         self.assertEqual(len(leak_proj["project"]["scan_history"]), 1)
 
     def test_developer_reset_preserves_admin_history(self):
@@ -206,7 +206,7 @@ class TestAdminAPI(unittest.TestCase):
         self.assertEqual(proj_detail["status"], "AT_RISK")
 
         # Step 10: Confirm leak count changed
-        self.assertEqual(summary["open_leaks"], 8)
+        self.assertEqual(summary["open_leaks"], 16)
 
         # Step 11: Confirm latest scan appears
         self.assertEqual(proj_detail["latest_scan"]["status"], "FAILED")
@@ -245,5 +245,5 @@ class TestAdminAPI(unittest.TestCase):
         persisted_summary = json.loads(new_handler.wfile.getvalue().decode("utf-8"))["summary"]
         self.assertEqual(persisted_summary["total_scans"], 2)
         self.assertEqual(persisted_summary["projects_count"], 2)
-        self.assertEqual(persisted_summary["open_leaks"], 8)
+        self.assertEqual(persisted_summary["open_leaks"], 16)
 
