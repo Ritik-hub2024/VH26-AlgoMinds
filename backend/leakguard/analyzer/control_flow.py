@@ -88,6 +88,17 @@ class ControlFlowAnalyzer:
                             "",
                         )
 
+                # Check nested try...finally inside try block body
+                nested_fin = cls._find_guaranteed_close_in_stmts(stmt.body, var_name)
+                if nested_fin:
+                    return (
+                        "SAFE",
+                        nested_fin,
+                        f"Guaranteed closed in nested finally block at line {nested_fin}.",
+                        None,
+                        "",
+                    )
+
                 # 3b. Except handlers early return or raise before close
                 for h in stmt.handlers:
                     exc_type_str = cls.format_condition(h.type) if h.type else ""
@@ -199,6 +210,24 @@ class ControlFlowAnalyzer:
         return "LEAK", None, problem, leak_path, recommendation
 
     @classmethod
+    def _find_guaranteed_close_in_stmts(
+        cls, stmts: List[ast.stmt], var_name: str
+    ) -> Optional[int]:
+        """Find close that is guaranteed to run in a nested try...finally block."""
+        for s in stmts:
+            if isinstance(s, (ast.Return, ast.Raise)):
+                return None
+            if isinstance(s, ast.Try):
+                if s.finalbody:
+                    fin_close = CloseDetector.find_close_in_stmts(s.finalbody, var_name)
+                    if fin_close and not cls._find_unclosed_exit_detail(s.finalbody, var_name):
+                        return fin_close
+                nested = cls._find_guaranteed_close_in_stmts(s.body, var_name)
+                if nested:
+                    return nested
+        return None
+
+    @classmethod
     def _find_unclosed_exit_detail(
         cls, stmts: List[ast.stmt], var_name: str
     ) -> Optional[Tuple[int, str]]:
@@ -256,5 +285,15 @@ class ControlFlowAnalyzer:
                     exit_else = cls._find_unclosed_return(s.orelse, var_name)
                     if exit_else:
                         return exit_else
+            if isinstance(s, ast.Try):
+                finally_close = CloseDetector.find_close_in_stmts(s.finalbody, var_name)
+                if not finally_close:
+                    try_ret = cls._find_unclosed_return(s.body, var_name)
+                    if try_ret:
+                        return try_ret
+                    for h in s.handlers:
+                        h_ret = cls._find_unclosed_return(h.body, var_name)
+                        if h_ret:
+                            return h_ret
         return None
 

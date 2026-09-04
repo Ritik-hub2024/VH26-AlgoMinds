@@ -273,14 +273,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
               <div class="finding-section">
                 <div class="finding-section-label">Reason:</div>
-                <div class="finding-reason-text">${escapeHtml(finding.reason)}</div>
+                <div class="finding-reason-text">${escapeHtml(finding.reason || finding.problem)}</div>
               </div>
 
-              ${finding.leak_path ? `
+              ${(finding.leak_path || finding.path) ? `
                 <div class="finding-section">
                   <div class="finding-section-label">Leak Path:</div>
                   <div class="finding-leak-path-block">
-                    <code>${escapeHtml(finding.leak_path)}</code>
+                    <code>${escapeHtml(finding.leak_path || finding.path)}</code>
                   </div>
                 </div>
               ` : ''}

@@ -23,14 +23,20 @@ class Resource:
         """Convert resource to dictionary."""
         return {
             "variable_name": self.variable_name,
+            "variable": self.variable_name,
+            "resource": f"{self.variable_name} ({self.resource_type})",
             "resource_type": self.resource_type,
             "opening_line": self.opening_line,
+            "opened_line": self.opening_line,
             "function_name": self.function_name,
             "status": self.status,
+            "cleanup_status": self.status,
             "closing_line": self.closing_line,
             "explanation": self.explanation,
+            "reason": self.explanation,
             "file_path": self.file_path,
             "leak_path": self.leak_path,
+            "path": self.leak_path,
             "is_context_manager": self.is_context_manager,
         }
 

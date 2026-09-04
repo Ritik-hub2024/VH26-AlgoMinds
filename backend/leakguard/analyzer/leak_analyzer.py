@@ -1,5 +1,6 @@
 """Main LeakAnalyzer coordinating AST resource detection and control flow."""
 
+# pyrefly: ignore [missing-import]
 from leakguard.analyzer.close_detector import CloseDetector
 import ast
 from pathlib import Path
@@ -214,9 +215,11 @@ class LeakAnalyzer(ast.NodeVisitor):
                     Resource(
                         variable_name=var_name,
                         resource_type="file",
+                        # pyrefly: ignore [missing-attribute]
                         opening_line=node.lineno,
                         function_name=self._current_function,
                         status="SAFE",
+                        # pyrefly: ignore [missing-attribute]
                         closing_line=getattr(node, "end_lineno", node.lineno),
                         explanation=f"Safely managed by context manager (with open(...) as {var_name}).",
                         file_path=self.current_file,
