@@ -6,8 +6,8 @@
   "syntax_errors": 1,
   "leaks_detected": 0,
   "last_scan": null,
-  "scan_duration_ms": 2.42,
-  "duration_seconds": 0.0024,
+  "scan_duration_ms": 2.64,
+  "duration_seconds": 0.0026,
   "findings": [],
   "syntax_errors_list": [
     {
@@ -32,6 +32,6 @@
     "clean_files": 0,
     "syntax_errors_count": 1,
     "issues_count": 0,
-    "duration_seconds": 0.0024
+    "duration_seconds": 0.0026
   }
 }

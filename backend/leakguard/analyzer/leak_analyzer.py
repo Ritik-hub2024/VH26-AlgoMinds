@@ -1,5 +1,6 @@
 """Main LeakAnalyzer coordinating AST resource detection and control flow."""
 
+from leakguard.analyzer.close_detector import CloseDetector
 import ast
 from pathlib import Path
 from typing import List, Optional, Union
@@ -18,6 +19,7 @@ class LeakAnalyzer(ast.NodeVisitor):
         self.current_file: str = ""
         self._current_function: Optional[str] = None
         self._parser = PythonParser()
+
 
     def analyze_file(self, file_path: Union[str, Path]) -> tuple[ParseResult, List[Resource]]:
         """Parse and analyze a single file for resource leaks."""

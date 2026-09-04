@@ -1,0 +1,28 @@
+# Pyrefly Configuration for LeakGuard
+project-includes = [
+    "analyzer/**/*.py",
+    "backend/**/*.py",
+    "benchmark/**/*.py",
+    "examples/**/*.py",
+    "leakguard/**/*.py",
+    "models/**/*.py",
+    "parser/**/*.py",
+    "python/**/*.py",
+    "reporter/**/*.py",
+    "tests/**/*.py",
+    "*.py",
+]
+
+project-excludes = [
+    "**/__pyrefly_virtual__/**",
+    "**/inmemory/**",
+    "**/__pycache__/**",
+    "**/.pytest_cache/**",
+    "examples/invalid_syntax_sample.py",
+    "python/syntax/invalid_python.py",
+]
+
+search-path = [
+    ".",
+    "backend",
+]
