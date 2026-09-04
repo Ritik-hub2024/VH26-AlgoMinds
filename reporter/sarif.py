@@ -46,6 +46,18 @@ _RULES_CATALOG: Dict[str, Dict[str, Any]] = {
             "text": "Ensure sqlite3.connect() handles are explicitly closed in a finally block or with contextlib.closing."
         },
     },
+    "UNKNOWN001": {
+        "id": "UNKNOWN001",
+        "name": "UnverifiedResourceOwnership",
+        "shortDescription": {"text": "Resource ownership transferred or unproven in current scope."},
+        "fullDescription": {
+            "text": "A resource handle escaped local scope via return, external call, container, or attribute binding and cannot be proven closed within the current module."
+        },
+        "defaultConfiguration": {"level": "note"},
+        "help": {
+            "text": "Verify that the receiving function, caller, or container closes the resource."
+        },
+    },
 }
 
 
@@ -61,6 +73,7 @@ class SARIFReporter:
         results: List[Dict[str, Any]] = []
 
         for issue in report.issues:
+            is_unknown = getattr(issue, "classification", "LEAK") == "UNKNOWN"
             sev = issue.severity
             if isinstance(sev, str):
                 try:
@@ -68,10 +81,16 @@ class SARIFReporter:
                 except ValueError:
                     sev = Severity.HIGH
 
-            level = _SEVERITY_TO_SARIF_LEVEL.get(sev, "error")
-            rule_id = issue.rule_id or "LEAK001"
+            # In SARIF v2.1.0, UNKNOWN is advisory note level to prevent false positive security errors in GitHub Code Scanning
+            if is_unknown:
+                level = "note"
+                rule_id = issue.rule_id or "UNKNOWN001"
+            else:
+                level = _SEVERITY_TO_SARIF_LEVEL.get(sev, "error")
+                rule_id = issue.rule_id or "LEAK001"
+
             raw_path = issue.location.file_path if issue.location else ""
-            norm_uri = normalize_path(raw_path, base_dir=report.target_path)
+            norm_uri = normalize_path(raw_path)
             start_line = issue.location.line if issue.location and issue.location.line > 0 else 1
             start_col = issue.location.column if issue.location and issue.location.column and issue.location.column > 0 else 1
 
@@ -85,7 +104,7 @@ class SARIFReporter:
                     {
                         "physicalLocation": {
                             "artifactLocation": {
-                                "uri": norm_uri,
+                               "uri": norm_uri,
                                 "uriBaseId": "%SRCROOT%",
                             },
                             "region": {
@@ -101,13 +120,16 @@ class SARIFReporter:
                     "recommendation": issue.recommendation or "",
                     "leak_path": issue.leak_path or "",
                     "severity": getattr(sev, "value", str(sev)),
+                    "classification": getattr(issue, "classification", "LEAK"),
+                    "ownership_status": getattr(issue, "ownership_status", "LOCAL"),
+                    "scope_limitation": getattr(issue, "scope_limitation", ""),
                 },
             }
             results.append(result_item)
 
         # Include any syntax errors as SARIF results
         for err in report.syntax_errors:
-            err_uri = normalize_path(err.filename, base_dir=report.target_path)
+            err_uri = normalize_path(err.filename)
             err_line = err.line if err.line and err.line > 0 else 1
             err_col = err.column if err.column and err.column > 0 else 1
             results.append({

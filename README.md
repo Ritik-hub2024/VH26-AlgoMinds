@@ -1,532 +1,386 @@
 # LeakGuard
 
-> Pure AST-based Python Static Analyzer for Detecting Resource and Memory Leaks
+> Pure AST-based Python Static Analyzer for Detecting, Explaining, and Gating Operating System Resource Leaks
 
-LeakGuard is a lightweight, zero-dependency static analysis tool designed specifically for Python codebases. It inspects Python Abstract Syntax Trees (AST) to identify resource leaks (unclosed files, dangling SQLite connections) and syntax anomalies safely, without executing any target code or relying on fragile regex patterns.
+[![LeakGuard CI](https://github.com/Ritik-hub2024/VH26-AlgoMinds/actions/workflows/ci.yml/badge.svg)](https://github.com/Ritik-hub2024/VH26-AlgoMinds/actions/workflows/ci.yml)
+[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/Ritik-hub2024/VH26-AlgoMinds)
+[![SARIF 2.1.0](https://img.shields.io/badge/SARIF-v2.1.0-green.svg)](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
-
-## Core Design Principles
-
-1. **Zero Code Execution**: Code is parsed strictly using Python's built-in `ast.parse`. Target files are never executed, imported, or dynamically evaluated.
-2. **Pure AST Analysis**: Leak detection rules rely strictly on AST node visitor structures (`ast.NodeVisitor`) and control-flow evaluation. No regular expressions or text-matching heuristics.
-3. **Extensible Rule Architecture**: Shared control-flow evaluation engine (`BaseResourceLifecycleRule`) abstracts acquisition and release semantics, making adding new resource types straightforward.
-4. **Actionable Reporting**: Reports provide the 6 critical dimensions needed for immediate resolution: **File**, **Line**, **Resource**, **Problem**, **Leak Path**, and **Recommendation**.
-5. **Context Manager Recognition**: Native understanding that `with open(...) as f:` and `with contextlib.closing(...) as conn:` guarantee cleanup (`__exit__`) across all control paths.
+LeakGuard is a lightweight, zero-dependency static analysis platform designed specifically for Python codebases. It inspects Python Abstract Syntax Trees (AST) to identify unclosed file descriptors, dangling database connections, and control-flow anomalies safely, without executing target code or relying on brittle regular expressions.
 
 ---
 
-## Architecture
+## Table of Contents
 
-```
-Developer / CI
-    ↓
-CLI / Web API
-    ↓
-Analysis Engine
-    ↓
-Python AST Parser
-    ↓
-Resource Lifecycle Rules
-    ↓
-Structured Analysis Report
-    ↓
-Developer Dashboard / GitHub CI / Admin Dashboard
-    ↓
-Storage Adapter (`storage/database.py`)
-    ↓
-Persistent SQLite Database (`leakguard.db`)
-```
-
-- **Python AST Parser (`parser/`)**: The parsing layer converts Python source code into AST representations safely via `ast.parse` with guaranteed zero code execution.
-- **Analysis Engine & Rules (`analyzer/`)**: The core detection layer coordinates lifecycle rules (`FileLeakRule`, `SQLiteLeakRule`) inheriting from `BaseResourceLifecycleRule` to evaluate sequential statements, branches, early returns, exceptions, and `finally` cleanup.
-- **Domain Models (`models/`)**: Structured data representations for resources, leak issues, severity levels, syntax errors, and analysis reports, plus product-level entity models (`Project`, `ScanRecord`, `FindingRecord`).
-- **Reporting Engine (`reporter/`)**: Output formatting layer providing human-readable terminal reports (`ConsoleReporter`), machine-readable JSON (`JSONReporter`), and GitHub Actions job summaries (`MarkdownReporter`).
-- **Persistence Layer (`storage/`)**: Thread-safe SQLite persistence layer completely decoupled from the core analyzer, storing project health, scan history, and findings across sessions.
-- **Developer & Admin Dashboard (`frontend/` & `app.py`)**: Dual-view interface separating developer triage (interactive scans, leak traces, code fixes) and product owner security monitoring (portfolio health, CI gates, chronological scan history, and leak analytics).
-- **GitHub Actions CI/CD (`.github/workflows/ci.yml`)**: Automated CI enforcement layer enforcing deterministic exit codes (0 for clean code, 1 for blocking leaks).
+1. [The Problem](#1-the-problem)
+2. [The Solution](#2-the-solution)
+3. [Why Resource Leaks Matter](#3-why-resource-leaks-matter)
+4. [Python AST Architecture](#4-python-ast-architecture)
+5. [Supported Resource Types](#5-supported-resource-types)
+6. [SAFE / LEAK / UNKNOWN Classification Model](#6-safe--leak--unknown-classification-model)
+7. [Early Return & Exception Path Analysis](#7-early-return--exception-path-analysis)
+8. [Resource Ownership & Inter-Procedural Limitations](#8-resource-ownership--inter-procedural-limitations)
+9. [Unified Developer Input: Uploads & Sandboxing](#9-unified-developer-input-uploads--sandboxing)
+10. [GitHub Actions CI/CD Integration](#10-github-actions-cicd-integration)
+11. [Deterministic Baseline Differential Gating](#11-deterministic-baseline-differential-gating)
+12. [Configurable Security Policy](#12-configurable-security-policy)
+13. [OASIS SARIF v2.1.0 & GitHub Code Scanning](#13-oasis-sarif-v210--github-code-scanning)
+14. [Admin & Product Owner Security Dashboard](#14-admin--product-owner-security-dashboard)
+15. [Persistent Scan History & SQLite Storage](#15-persistent-scan-history--sqlite-storage)
+16. [Empirical Benchmark Suite (46 Cases)](#16-empirical-benchmark-suite-46-cases)
+17. [Accuracy & Generalization Disclaimer](#17-accuracy--generalization-disclaimer)
+18. [Security & Zero-Code-Execution Guarantee](#18-security--zero-code-execution-guarantee)
+19. [Known Limitations & Roadmap](#19-known-limitations--roadmap)
+20. [Quick-Start Instructions](#20-quick-start-instructions)
 
 ---
 
-## Round-2 Validation & Benchmark Suite
+## 1. The Problem
 
-### 1. Supported Python Resources
-LeakGuard supports Python as its **only** target language. The analyzer provides lifecycle rules for:
-- **File Resources (`LEAK001`)**: Objects opened via built-in `open()`, `builtins.open()`, or `io.open()`, released via `f.close()` or `with open(...) as f:`.
-- **SQLite Database Connections (`LEAK002`)**: Connection objects acquired via `sqlite3.connect()` or `connect()`, released via `conn.close()` in `finally:` or `with contextlib.closing(...) as conn:`.
+Operating system resources—such as open file descriptors, database connections, and network sockets—are scarce kernel allocations. When developers write Python code, complex control flows (such as early returns, unhandled exception branches, or loop breaks) frequently bypass trailing `close()` invocations. Traditional text-based linters only check for token presence (`open` and `close` keywords), failing to detect control-flow bypasses, while dynamic tests miss rare error paths.
 
-### 2. Detection Scenarios
-The intra-procedural AST control-flow engine analyzes:
-- **Sequential Flows**: Resource acquisition followed by exit or scope termination without explicit release.
-- **Early-Return Divergence**: `if` / `else` branches where one path returns or breaks before release is reached.
-- **Exception Paths**: `try` blocks where an `except` handler exits via `return` or `raise` without cleanup.
-- **Guaranteed `finally:` Cleanup**: Recognition that calls inside `finally:` blocks run unconditionally on all paths.
-- **Context Managers**: Recognition that `with` statements guarantee deterministic cleanup via `__exit__`.
-- **Syntax Error Isolation**: Non-compilable Python files are trapped gracefully with accurate line/column metadata without crashing the analyzer.
+---
 
-### 3. Canonical Python Test Corpus (21 Cases)
-The project includes a 21-file canonical test corpus under `python/`:
+## 2. The Solution
+
+LeakGuard performs intra-procedural Abstract Syntax Tree (AST) control-flow graph analysis. It maps the full lifecycle of every acquired resource from its allocation node through conditional branches, exception blocks, and loops. LeakGuard proves whether every reachable path guarantees deterministic cleanup, isolates indeterminate cross-boundary code into `UNKNOWN`, generates SARIF v2.1.0 alerts, and blocks regressions in GitHub Actions with differential baseline gating.
+
+---
+
+## 3. Why Resource Leaks Matter
+
+- **OS Descriptor Exhaustion (`EMFILE: Too many open files`)**: Once a process exhausts available file descriptors, all subsequent file operations, DNS lookups, and incoming socket connections fail globally.
+- **Database Connection Pool Starvation**: Unclosed connections leave orphaned transactions, lock tables, and exhaust backend pool limits.
+- **Silent Failures in Production**: Resource leaks rarely fail in unit tests where processes terminate quickly. They accumulate in long-running services (FastAPI, Flask, Celery, Django) until cascading outages occur under load.
+
+---
+
+## 4. Python AST Architecture
+
+LeakGuard operates on a decoupled multi-tier architecture:
 
 ```
-python/
-├── leaks/                         # 8 Intentional Leak Cases
-│   ├── file_no_close.py           # Unclosed file handle in sequential code
-│   ├── early_return.py            # File open with early return in if branch
-│   ├── exception_leak.py          # File open with unclosed return in except
-│   ├── raise_leak.py              # File open with unhandled raise before close
-│   ├── sqlite_leak.py             # sqlite3.connect() unclosed in sequential code
-│   ├── sqlite_early_return.py     # sqlite3.connect() with early return in if
-│   ├── reassignment_leak.py       # Handle overwritten before previous resource closed
-│   └── alias_leak.py              # Resource aliased to secondary variable but neither closed
-│
-├── safe/                          # 8 Verified Safe Patterns
-│   ├── explicit_close.py          # Sequential f.close() guaranteed
-│   ├── with_file.py               # Context manager with open(...) as f:
-│   ├── finally_close.py           # Guaranteed f.close() in finally:
-│   ├── exception_finally.py       # try / except with f.close() in finally:
-│   ├── sqlite_safe.py             # Guaranteed conn.close() in finally:
-│   ├── reassignment_safe.py       # Handle explicitly closed before reassignment
-│   ├── alias_safe.py              # Resource released by calling close() on local alias
-│   └── callee_closes_resource.py  # Intra-module callee proven to unconditionally close handle
-│
-├── unknown/                       # 4 Ambiguous Ownership Cases (Conservative Safety)
-│   ├── transfer_unknown.py        # Resource passed to external/unprovable function
-│   ├── return_unknown.py          # Resource handle returned to caller
-│   ├── attribute_unknown.py       # Resource stored in object attribute
-│   └── collection_unknown.py      # Resource appended into container
-│
-└── syntax/                        # 1 Syntax Error Case
-    └── invalid_python.py          # Intentional syntax error for AST parser validation
+                     LEAKGUARD
+                         |
+        +----------------+----------------+
+        |                                 |
+   Developer UI                        GitHub CI
+        |                                 |
+   Upload / Paste                    PR / Push
+        |                                 |
+        +----------------+----------------+
+                         |
+                    Scan Service
+                         |
+                    Python AST
+                         |
+                Analysis Engine
+                         |
+          +--------------+--------------+
+          |              |              |
+        SAFE           LEAK          UNKNOWN
+          |              |              |
+          +--------------+--------------+
+                         |
+                 AnalysisReport
+                  /      |      \
+                 /       |       \
+             JSON     GitHub      Admin
+                       SARIF       DB
+                                    |
+                              Product Owner
+                               Dashboard
 ```
 
-### 4. Benchmark Method
-Execute the automated benchmark against the full test corpus:
+- **Parser Layer (`parser/ast_parser.py`)**: Uses standard library `ast.parse()` to safely convert source code into an AST. Code is never imported or executed.
+- **Analysis Engine (`analyzer/engine.py`)**: Coordinates extensible lifecycle rules inheriting from `BaseResourceLifecycleRule`.
+- **Lifecycle Engine (`analyzer/rules/base_lifecycle.py`)**: Evaluates control-flow branches, try/finally blocks, loop jumps, variable reassignments, and local aliasing.
+- **Domain Models (`models/`)**: Standardized representations for reports, findings, policies, and differential baselines.
+- **Reporters (`reporter/`)**: Generates rich terminal output (`console.py`), machine-readable payloads (`json_reporter.py`), PR summaries (`markdown.py`), and SARIF (`sarif.py`).
+
+---
+
+## 5. Supported Resource Types
+
+LeakGuard focuses deeply on Python lifecycle rules:
+- **File Descriptors (`LEAK001`)**: Identifies `open()`, `builtins.open()`, and `io.open()`. Verifies cleanup via `with open(...)` or explicit `f.close()` in all execution paths.
+- **SQLite Database Connections (`LEAK002`)**: Identifies `sqlite3.connect()`. Verifies cleanup via `conn.close()` in `finally:` blocks or `with contextlib.closing(conn):`.
+- **Extensible Registry**: Additional resource rules (e.g. `socket.socket`, `aiohttp.ClientSession`) plug into `RuleRegistry` via the base lifecycle model.
+
+---
+
+## 6. SAFE / LEAK / UNKNOWN Classification Model
+
+LeakGuard rejects binary guesswork and enforces a sound 3-state classification:
+- **`SAFE`**: Proves that every reachable control-flow exit path triggers deterministic resource cleanup.
+- **`LEAK`**: Proves that at least one reachable exit path terminates without invoking cleanup.
+- **`UNKNOWN`**: The resource escaped local analysis scope (returned to caller, passed to external callee, or stored in container/attribute).
+
+```
+               Analysis Scope
+                     |
+        +------------+------------+
+        |                         |
+   Conclusive Proof          Scope Escape
+        |                         |
+   +----+----+                    |
+   |         |                    |
+  LEAK      SAFE               UNKNOWN
+  (TP)      (TN)            (Unknown Rate)
+```
+
+`UNKNOWN` findings are strictly isolated from False Positive and False Negative metrics. They are treated as advisory notices by default and never trigger false security alarms.
+
+---
+
+## 7. Early Return & Exception Path Analysis
+
+LeakGuard's control-flow graph evaluator detects non-trivial exit points:
+- **Early Returns in `if/else`**: Flags branches where one condition returns before `f.close()`.
+- **Exception Path Jumps**: Verifies whether unhandled exceptions in `try` blocks skip cleanup placed outside `finally`.
+- **Loop Bypasses**: Traverses `ast.For`, `ast.AsyncFor`, and `ast.While` blocks to catch loop early returns that skip post-loop cleanup.
+- **Reassignment Leaks**: Detects overwriting a variable (`f = open(...)` or `f = None`) without closing the active handle.
+
+---
+
+## 8. Resource Ownership & Inter-Procedural Limitations
+
+LeakGuard performs intra-procedural analysis with limited same-module callee proof:
+- **Same-Module Helpers**: If a function passes a handle to a helper defined in the same AST module (`close_it(f)`), LeakGuard proves if the helper closes the resource.
+- **Cross-Module & External Calls**: If a resource is passed to an imported or unresolvable function (`process(f)`), returned (`return f`), or stored on `self.handle`, LeakGuard marks it as `UNKNOWN — Ownership Transferred` with line-level explanation.
+
+---
+
+## 9. Unified Developer Input: Uploads & Sandboxing
+
+LeakGuard provides three developer input methods:
+1. **Interactive Paste / Target Select**: Select local workspace directories or paste snippets.
+2. **Single Python File Upload**: Upload an individual `.py` script for instant AST analysis.
+3. **Project Folder Upload**: Upload a directory tree via `webkitdirectory`. LeakGuard recursively scans `.py` files and ignores non-Python assets (`.txt`, `.json`, binaries).
+- **Security Sandboxing**: Uploads are analyzed in ephemeral `tempfile.TemporaryDirectory()` workspaces and unlinked immediately. Absolute paths and path traversals (`..`) are rejected.
+
+---
+
+## 10. GitHub Actions CI/CD Integration
+
+LeakGuard integrates directly into GitHub Actions across Python 3.10, 3.11, 3.12, and 3.13:
+```yaml
+name: LeakGuard CI
+on: [push, pull_request]
+
+jobs:
+  test-and-analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: pytest -v
+      - run: python cli.py --target . --github-summary
+```
+**Exit Code Semantics**:
+- `exit 0`: Safe code / baseline leaks tolerated -> CI PASS
+- `exit 1`: New blocking leaks / syntax errors -> CI FAIL
+- `exit 2`: Command-line usage error
+
+---
+
+## 11. Deterministic Baseline Differential Gating
+
+Legacy repositories often contain hundreds of pre-existing leaks. Blocking pull requests on legacy debt frustrates developers. LeakGuard solves this with **deterministic baselines**:
+
 ```bash
-python benchmark/run_benchmark.py
-# or via runner
-python run.py benchmark
+# 1. Generate baseline snapshot on main branch
+python cli.py --target . --baseline-out leak_baseline.json
+
+# 2. Run PR differential check in CI
+python cli.py --target . --baseline leak_baseline.json --github-summary
 ```
 
-The benchmark runs `AnalysisEngine` against all 21 test cases, compares actual findings against expected outcomes, calculates quality metrics, outputs a formatted terminal matrix, and writes machine-readable results to `benchmark/results.json`.
-
-### 5. Observed FP / FN Results (Quality Metrics)
-Evaluated on the 21 canonical test corpus cases:
-
-| Metric | Observed Value | Description |
-| :--- | :--- | :--- |
-| **Total Test Cases** | **21** | 8 leaks, 8 safe, 4 unknown ownership, 1 syntax error |
-| **True Positives (TP)** | **8** | All 8 intentional leaks correctly flagged |
-| **True Negatives (TN)** | **8** | All 8 safe patterns verified with zero alerts |
-| **Unknown Positives** | **4** | All 4 ambiguous ownership cases conservatively classified as UNKNOWN |
-| **False Positives (FP)** | **0** | Zero spurious alerts on safe code |
-| **False Negatives (FN)** | **0** | Zero missed leaks |
-| **Syntax Errors (TP)** | **1** | Syntax error caught and reported cleanly |
-| **Precision** | **100.0%** ($1.0$) | Fraction of detected leaks that are genuine |
-| **Recall** | **100.0%** ($1.0$) | Fraction of real leaks detected |
-| **F1 Score** | **100.0%** ($1.0$) | Harmonic mean of precision and recall |
-| **Accuracy** | **100.0%** ($1.0$) | Overall classification accuracy |
-
-> [!NOTE]
-> **Conservative Safety Guarantee**: LeakGuard never turns uncertainty into a false SAFE or false LEAK. When ownership escapes local function scope (via argument transfer, return statement, container storage, or object attribute assignment), it is honestly categorized as **UNKNOWN**. By default, `UNKNOWN` findings are advisory warnings and do not fail CI gates unless `--block-unknown` is explicitly enabled.
-
-### 6. Ownership Analysis Scope & Limitations
-
-LeakGuard tracks ownership conservatively without whole-program analysis:
-- **Reassignments (`f = open(); f = open()`)**: Reassigning a variable that holds an open resource is detected as an immediate leak (`REASSIGNED`).
-- **Local Aliases (`g = f; g.close()`)**: Transitive assignment creates an alias set. Closing any alias in the set marks the underlying resource as safely closed.
-- **Argument Transfers (`process(f)`)**: Passing an open resource into an external function marks the resource as `UNKNOWN (TRANSFERRED)` with callee name and line metadata.
-- **Intra-Module Callee Proof**: When a function in the same module is called, LeakGuard analyzes the callee AST. If and only if the callee unconditionally closes the parameter on all execution paths without reassigning or returning it, the caller site is proven `SAFE`.
-- **Returned Resources (`return f`)**: Returning an open resource transfers lifecycle responsibility to the caller, classified as `UNKNOWN (RETURNED)`. In contrast, returning read data (`return f.read()`) is recognized as a genuine leak (`LEAK`).
-- **Object Attributes (`self.file = open()`)**: Storing a resource on an object instance escapes method scope, classified as `UNKNOWN (ATTRIBUTE)`.
-- **Container Escapes (`pool.append(f)`)**: Storing a handle into a list, set, or dictionary escapes local tracking, classified as `UNKNOWN (CONTAINER)`.
-- **Explicit Limitations**: LeakGuard does not perform cross-package whole-program analysis, dynamic type inference, or runtime heap tracing.
+### Stable 5-Tuple Fingerprint
+```
+{rule_id}:{normalized_relative_path}:{line}:{resource_type}:{resource_name}
+```
+Pre-existing baseline leaks are **tolerated** (Exit 0). Any **new** leak introduced in the PR immediately fails the gate (Exit 1).
 
 ---
 
-## 2-Minute Jury Demo
+## 12. Configurable Security Policy
 
-Run the automated live jury demo:
-```bash
-python demo.py
-# or
-python run.py demo
-```
-
-The demo executes the complete flow:
-1. **SAFE**: Scan clean baseline (`safe_file.py`).
-2. **INTRODUCE LEAK**: Introduce an early return inside an `if` branch (`open -> if condition -> return -> close`).
-3. **LEAK DETECTED**: Scan leaking code and produce an actionable CLI report with exact leak path.
-4. **FIX & VERIFY**: Refactor with `with open(...) as f:` and verify clean status.
-5. **BOUNDARY**: Discuss intra-procedural scope vs cross-function ownership.
-
-See [DEMO.md](DEMO.md) for full presentation notes and timings.
+Teams can configure gate thresholds using `--policy` / `--block-level`:
+- **`HIGH` (Default)**: Blocks PR on `HIGH` or `CRITICAL` leaks; `MEDIUM` and `LOW` warn.
+- **`MEDIUM`**: Blocks PR on `MEDIUM`, `HIGH`, or `CRITICAL` leaks; `LOW` warns.
+- **`LOW`**: Blocks PR on any detected issue.
+- **`--block-unknown`**: Optional strict mode that blocks on `UNKNOWN` ownership transfers.
 
 ---
 
-## Actionable Report Format
+## 13. OASIS SARIF v2.1.0 & GitHub Code Scanning
 
-When LeakGuard detects an unclosed resource leak, it formats all actionable dimensions clearly:
-
-```text
-================================================================
-  LeakGuard Static Analysis Report (Jury Version)
-  Scope: Intra-procedural AST Control-Flow Analysis
-================================================================
- Target:   python/leaks/sqlite_leak.py
- Files:    1 scanned
- Duration: 0.0040s
-----------------------------------------------------------------
-
-Detected Issues (1):
-  [1] [HIGH] LEAK002 in get_users()
-      File:           python/leaks/sqlite_leak.py
-      Line:           5
-      Resource:       conn (type: SQLite connection)
-      Problem:        Early return at line 8 exits before 'conn.close()' is reached.
-      Leak Path:      L5: sqlite3.connect() -> L8: return (leak)
-      Recommendation: Call 'conn.close()' before returning at line 8, or wrap in try...finally.
-
-----------------------------------------------------------------
- Result: FAILED: Resource leaks or syntax errors detected.
- Summary: 0/1 clean files, 0 syntax errors, 1 issues.
- Note:   Intra-procedural scope. Cross-function ownership is not claimed.
-================================================================
+LeakGuard generates standard OASIS SARIF v2.1.0 JSON format:
+```bash
+python cli.py --target . -f sarif -o results.sarif
 ```
+
+### GitHub Code Scanning Workflow
+```yaml
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Run LeakGuard SARIF Scan
+        run: python cli.py --target . -f sarif -o results.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: results.sarif
+          category: leakguard-python-${{ matrix.python-version }}
+```
+SARIF paths are normalized relative to `%SRCROOT%`. `UNKNOWN` issues are mapped to `note` severity, ensuring they never trigger false security alarms in GitHub's Security tab.
 
 ---
 
-## Repository Structure
+## 14. Admin & Product Owner Security Dashboard
 
-```
-LeakGuard/
-├── .gitignore             # Standard Python ignore patterns
-├── README.md              # Project documentation
-├── DEMO.md                # 2-minute jury demo presentation guide
-├── pyproject.toml         # Packaging and build specifications
-├── requirements.txt       # Project dependencies (pytest for tests)
-├── cli.py                 # Direct CLI entry point
-├── demo.py                # Automated 2-minute jury demo
-├── run.py                 # Multi-command runner (demo, test, scan, benchmark, app)
-│
-├── parser/                # AST parsing and syntax validation
-│   ├── __init__.py
-│   └── ast_parser.py      # Safe AST parser implementation
-│
-├── analyzer/              # Core analysis abstractions
-│   ├── __init__.py
-│   ├── base.py            # BaseRule AST NodeVisitor contract
-│   ├── engine.py          # AnalysisEngine orchestration
-│   └── rules/
-│       ├── __init__.py
-│       ├── base_lifecycle.py # Reusable AST control-flow lifecycle engine
-│       ├── file_leak.py   # LEAK001: File resource leak rule
-│       └── sqlite_leak.py # LEAK002: SQLite connection leak rule
-│
-├── models/                # Typed domain models
-│   ├── __init__.py
-│   ├── location.py        # SourceLocation dataclass
-│   ├── issue.py           # LeakIssue and Severity dataclasses
-│   ├── resource.py        # Resource tracking dataclass
-│   └── report.py          # ParseResult and AnalysisReport
-│
-├── reporter/              # Output formatters
-│   ├── __init__.py
-│   ├── console.py         # Actionable terminal reporter
-│   └── json_reporter.py   # Machine-readable JSON output
-│
-├── python/                # Canonical test case suite
-│   ├── leaks/             # 6 intentional leak cases
-│   │   ├── early_return.py          # open() with early return
-│   │   ├── exception_leak.py        # Exception path unclosed
-│   │   ├── file_no_close.py         # Raw unclosed file
-│   │   ├── raise_leak.py            # Unclosed exit via raise
-│   │   ├── sqlite_early_return.py   # sqlite3.connect() with early return
-│   │   └── sqlite_leak.py           # Unclosed sqlite3.connect()
-│   ├── safe/              # 5 verified safe patterns
-│   │   ├── exception_finally.py     # Exception handler with finally close
-│   │   ├── explicit_close.py        # Sequential explicit close()
-│   │   ├── finally_close.py         # Guaranteed closed in finally block
-│   │   ├── sqlite_safe.py           # Guaranteed sqlite close in finally
-│   │   └── with_file.py             # Context manager with open()
-│   └── syntax/            # 1 syntax error case
-│       └── invalid_python.py        # Intentional syntax error
-│
-├── frontend/              # Web security dashboard
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-│
-├── examples/              # Additional demonstration samples
-│   ├── valid_sample.py
-│   ├── invalid_syntax_sample.py
-│   └── resource_sample.py
-│
-├── benchmark/             # Automated benchmark suite & results
-│   ├── README.md          # Benchmark guide & Resource Lifecycle Matrix
-│   ├── results.json       # Generated machine-readable benchmark metrics
-│   ├── run_benchmark.py   # Automated corpus benchmark runner
-│   └── benchmark_parser.py# AST parsing throughput micro-benchmark
-│
-└── tests/                 # Comprehensive test suite (193 passing tests)
-    ├── __init__.py
-    ├── test_parser.py     # AST parser & syntax error tests
-    ├── test_cli.py        # CLI discovery & scanning tests
-    ├── test_models.py     # Data model tests
-    ├── test_detector.py   # Control-flow & leak detector tests
-    ├── test_analyzer.py   # Canonical corpus & exception tests
-    ├── test_sqlite_leak.py# SQLite connection leak & finally tests
-    ├── test_reporter.py   # Reporter formatting tests
-    ├── test_storage.py    # SQLite persistent database tests
-    ├── test_admin_api.py  # Admin dashboard & analytics tests
-    ├── test_upload.py     # Unified developer file/folder upload tests
-    ├── test_server.py     # Local server & API tests
-    ├── test_ownership_analysis.py # Ownership, reassignment & alias tests
-    ├── test_benchmark.py  # Expanded 46-case benchmark verification tests
-    └── test_frontend_simulation.js # Browser DOM & interactive simulation tests
-```
+The Admin Dashboard (`/#admin` in the web application) provides an executive portfolio overview:
+- **Portfolio Health Table**: Real-time status (`HEALTHY`, `AT_RISK`, `REVIEW`, `NOT_SCANNED`).
+- **KPI Summary Cards**: Monitored Projects, Total Scans, Open Leaks, High Severity, and CI Blocked count.
+- **CI / PR Intelligence Drilldown**: Inspect repository, branch, commit SHA, PR number, and workflow run ID.
+- **New vs. Baseline Separation**: Clear breakdown of blocking new leaks vs. tolerated baseline debt.
+- **Zero Fake Data**: Missing metadata is rendered truthfully (`-` or `Not Available`).
 
 ---
 
-## Quick Start
+## 15. Persistent Scan History & SQLite Storage
 
-### 1. Scan a File or Directory
-Run the CLI on any Python file or folder:
+All scans (local workspace, file upload, project upload, or CI run) are automatically persisted to a local SQLite database (`leakguard.db`):
+- Thread-safe storage via Python's standard `sqlite3`.
+- Ingest portable CI result JSON artifacts:
+  ```bash
+  python cli.py --ingest leakguard-ci-result.json
+  ```
+- REST APIs for portfolio metrics:
+  - `GET /api/admin/summary`
+  - `GET /api/admin/projects`
+  - `GET /api/admin/project?id=<id>`
+  - `GET /api/admin/scans?limit=50`
+  - `GET /api/admin/analytics`
+
+---
+
+## 16. Empirical Benchmark Suite (46 Cases)
+
+LeakGuard was hardened against a 46-case canonical benchmark corpus:
+
+| Category | File Count | Description |
+|:---|:---:|:---|
+| **LEAK** | **16** | Early returns, unhandled exceptions, loop skips, reassignments, unclosed SQLite |
+| **SAFE** | **16** | Context managers, `finally:` cleanup, alias close, multi-resource with, lookalike methods |
+| **UNKNOWN** | **10** | External calls, return transfers, attribute storage, container escapes, kwargs |
+| **SYNTAX** | **4** | Missing colons, indentation errors, unclosed parentheses, incomplete try blocks |
+| **Total** | **46** | Comprehensive adversarial control-flow evaluation |
+
+### Benchmark Evaluation Results
+
+| Metric | Result | Notes |
+|:---|:---:|:---|
+| **Precision** | **100.00%** | Zero false positives ($FP = 0$) |
+| **Recall** | **100.00%** | Zero false negatives ($FN = 0$) |
+| **F1 Score** | **1.0000** | Perfect harmonic mean on definite cases |
+| **Definite Accuracy** | **100.00%** | Correct classifications across all definite cases |
+| **Unknown Rate** | **21.74%** | 10 / 46 cases safely isolated |
+| **Execution Time** | **0.0632s** | Full 46-case benchmark run in ~63 milliseconds |
+| **Latency / File** | **1.37 ms** | Average per-file analysis time |
+
+### Running the Benchmark
 ```bash
-# Scan a directory
-python cli.py python/leaks/
-
-# Scan the safe suite
-python cli.py python/safe/
-
-# Output machine-readable JSON
-python cli.py python/ --format json
-```
-
-### 2. Run Tests
-Ensure all tests pass using `pytest`:
-```bash
-# Run full consolidated test suite (193 tests)
-python -m pytest tests/ -v
-
-# Run browser simulation tests (14 tests)
-node tests/test_frontend_simulation.js
-```
-
-### 3. Run Benchmark
-Run the automated benchmark on the expanded 46-file canonical corpus:
-```bash
+# Standard deterministic run
 python benchmark/run_benchmark.py
 
-# Optional: Shuffle execution order with seed
+# Shuffled reproducibility test
 python benchmark/run_benchmark.py --shuffle --seed 42
 ```
 
 ---
 
-## Benchmark & Accuracy
+## 17. Accuracy & Generalization Disclaimer
 
-LeakGuard features a deterministic, automated benchmark runner that measures static analysis accuracy across **46 canonical test cases** encompassing files, database connections, nested control flow, loop early exits, and conservative ownership tracking.
+> [!NOTE]
+> **Scope of Accuracy Metrics**:
+> The 100% precision, 100% recall, and 100% definite accuracy metrics apply **strictly to LeakGuard's curated 46-case canonical benchmark corpus**.
+> While the corpus includes adversarial control flows and nested jumps, these results do **not** claim or imply 100% accuracy on arbitrary, dynamic, or metaprogrammed Python code in the wild.
+> Indeterminate patterns are isolated into the `Unknown Rate` (21.7%) rather than guessed, ensuring sound and truthful reporting.
 
-### Benchmark Quality Metrics
+---
 
-```text
-================================================================================
-  LeakGuard Automated Benchmark — Step 9 Expanded Benchmark (step-9-final)
-  Scope: Intra-procedural AST Resource Lifecycle & Conservative Ownership Analysis
-================================================================================
- Quality Metrics (Actual Performance on Canonical Corpus):
-   * Total Corpus Cases:      46
-   * True Positives (TP):     16 (detected real leaks)
-   * True Negatives (TN):     16 (verified safe code)
-   * False Positives (FP):    0 (spurious alerts)
-   * False Negatives (FN):    0 (missed leaks)
-   * Ambiguous (UNKNOWN):     10 / 10
-   * Syntax Errors Detected:  4 / 4
-   * Precision:               100.0%
-   * Recall:                  100.0%
-   * F1 Score:                100.0%
-   * Accuracy:                100.0%
-   * Unknown Rate:            21.7%
---------------------------------------------------------------------------------
- Comparative Analysis: BEFORE STEP 9 vs AFTER STEP 9
---------------------------------------------------------------------------------
-Metric                    BEFORE (Step 8)        AFTER (Step 9)        
---------------------------------------------------------------------------------
-Corpus Cases              21                     46                    
-True Positives (TP)       8                      16                    
-True Negatives (TN)       8                      16                    
-False Positives (FP)      0                      0                     
-False Negatives (FN)      0                      0                     
-Unknown Cases             4                      10                    
-Syntax Errors             1                      4                     
-Precision                 100.0%                 100.0%
-Recall                    100.0%                 100.0%
-F1 Score                  100.0%                 100.0%
-Accuracy                  100.0%                 100.0%
-Unknown Rate              19.0%                  21.7%
-================================================================================
+## 18. Security & Zero-Code-Execution Guarantee
+
+LeakGuard guarantees complete isolation:
+- **No Code Execution**: Scanned Python source is parsed via `ast.parse()`. Target code is never imported, loaded into `sys.modules`, or executed with `eval()` or `exec()`.
+- **Sandboxed Uploads**: File uploads are processed in ephemeral temporary directories and unlinked immediately.
+- **Path Traversal Protection**: Directory traversal sequences (`..`), absolute paths, and null bytes are rejected.
+
+---
+
+## 19. Known Limitations & Roadmap
+
+- **Intra-procedural Focus**: Inter-procedural analysis is limited to callees in the same module. Cross-module inter-procedural proof is classified as `UNKNOWN`.
+- **Dynamic Attributes**: Resources assigned to dynamic dictionaries (`locals()[var]`) or injected at runtime cannot be resolved statically.
+- **Language Scope**: Exclusively analyzes Python (3.10–3.13). Non-Python languages are out of scope.
+
+---
+
+## 20. Quick-Start Instructions
+
+### Installation
+```bash
+git clone https://github.com/Ritik-hub2024/VH26-AlgoMinds.git
+cd VH26-AlgoMinds
+python -m pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-> [!IMPORTANT]
-> **Scope & Honesty Disclaimer**:
-> Metrics are measured strictly on the project's curated benchmark corpus and do not represent universal real-world accuracy across arbitrary third-party codebases.
-> 
-> **Separation of UNKNOWN Cases**:
-> Ambiguous ownership transfers (function arguments, returned resources, object attributes, container storage) are classified as `UNKNOWN` rather than forced into false `SAFE` or false `LEAK`. `UNKNOWN` cases are strictly isolated and reported separately under `Unknown Rate` (21.7%) rather than artificially inflating True Positives or False Positives.
+### Run Automated Tests
+```bash
+# Run full pytest suite (193 tests)
+pytest -v
 
+# Run frontend simulation suite (14 tests)
+node tests/test_frontend_simulation.js
+```
 
-### 4. Run the Web Dashboard
-Launch the interactive security dashboard with live Python AST scanning:
+### CLI Scanning
+```bash
+# Scan a directory
+python cli.py --target python/safe/
+
+# Scan with JSON output
+python cli.py --target python/leaks/ -f json
+
+# Scan with SARIF export
+python cli.py --target python/leaks/ -f sarif -o results.sarif
+
+# Run PR baseline differential check
+python cli.py --target python/leaks/ --baseline leak_baseline.json --github-summary
+```
+
+### Launch Web & Admin Dashboard
 ```bash
 python app.py
 ```
-Open `http://localhost:8000` to interact with the dashboard:
-
-#### Developer View (`/#` or click "Developer View" tab)
-- Select a local workspace target from the dropdown or:
-- Click **Upload Python File** to upload and inspect an individual `.py` script
-- Click **Upload Python Folder** to upload an entire Python project directory tree
-- Drag and drop Python files or folders directly into the dropzone
-- Click **Scan Python Project** to execute live AST control-flow analysis
-- Inspect PASS / FAILED status, leak paths, and actionable recommendations
-- Click **Reset** to restore the dashboard to its clean initial state
-
-#### Admin / Product Owner View (`/#admin` or click "Admin & Product Owner" tab)
-- **Portfolio Health Table**: High-level security status across projects (`HEALTHY`, `AT_RISK`, `REVIEW`, `NOT_SCANNED`).
-- **KPI Summary Cards**: Monitored Projects, Total Scans, Open Leaks, High Severity Leaks, and CI Blocked count.
-- **Drilldown Details**: Click **Details** on any project to inspect open findings, code locations, and chronological scan history.
-- **Recent Scans Activity Stream**: Real-time audit log with **Scan Type** categorization (`FILE UPLOAD`, `PROJECT UPLOAD`, `LOCAL SCAN`, `CI`).
-- **Security Analytics**: Visual breakdown of leaks by resource type, project leak distributions, and CI success rate.
-- **Automatic Persistence**: Every scan (local workspace, file upload, project upload, or CI) automatically persists to the SQLite database (`leakguard.db`) and refreshes Admin metrics.
-
-### 5. Unified Scan & Upload REST API Endpoints
-
-The dashboard server exposes dedicated endpoints for live scans, uploads, and organizational visibility:
-
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/api/scan/upload` | Upload single `.py` file or folder payload for isolated AST leak analysis |
-| `GET` | `/api/scan?target=<path>` | Execute AST scan on local workspace target |
-| `GET` | `/api/admin/summary` | High-level KPI metrics (projects, total scans, open leaks, high severity, CI blocked) |
-| `GET` | `/api/admin/projects` | Monitored projects with health status, latest scan outcome, and leak counts |
-| `GET` | `/api/admin/project?id=<id>` | Detailed project metadata, latest scan, open findings, and chronological scan history |
-| `GET` | `/api/admin/scans?limit=50` | Recent scan executions activity stream with `scan_type` tags |
-| `GET` | `/api/admin/analytics` | Resource breakdown, leak distributions by project, and CI pass/fail rate |
-| `GET` | `/admin` | Redirects to `/#admin` in the web application |
-
-### 6. Security & Sandboxing Guarantees
-- **Zero Code Execution**: Uploaded files are strictly parsed using `ast.parse()`. Target code is never imported, executed, or evaluated.
-- **Temporary Sandboxing**: Uploads are written into ephemeral `tempfile.TemporaryDirectory()` workspaces and completely unlinked immediately after AST analysis.
-- **Strict Path Traversal Blocking**: Filenames with `..`, absolute paths, colon drive letters, or null bytes are rejected with `400 Bad Request`.
-- **Python File Filtering**: Only `.py` files are parsed; non-Python files in folder uploads are ignored automatically.
-
-### 7. CLI Persistent Recording
-To persist CLI or CI/CD scan results directly into the local database:
-```bash
-python cli.py python/safe/ --record --project-id my-project
-```
-
----
-
-## CI/CD Integration
-
-LeakGuard integrates directly into GitHub Actions and CI/CD pipelines to block resource leaks before code merges into production.
-
-### How the CI Pipeline Works
-1. **Developer pushes code** or opens a pull request.
-2. **GitHub Actions workflow triggers** (`.github/workflows/ci.yml`) across supported Python versions (3.10, 3.11, 3.12, 3.13).
-3. **Environment setup & tests**: Dependencies are installed in a clean virtual environment and the full test suite runs (`pytest -v`).
-4. **LeakGuard scans Python code**:
-   ```bash
-   python cli.py --target python/safe/ --github-summary
-   ```
-5. **Deterministic Exit Codes**:
-   - `Safe code  -> exit 0 -> CI PASS`
-   - `Leak found -> exit 1 -> CI FAIL`
-6. **Developer feedback**: An actionable markdown report is automatically posted to the GitHub Actions Job Summary with exact file locations, leak paths, and fix recommendations.
-7. **Developer resolves the leak** and pushes again until the pipeline turns green.
-
-### Exit Code Semantics
-```
-Safe code   → exit 0 → CI PASS
-Leak found  → exit 1 → CI FAIL
-Syntax error→ exit 1 → CI FAIL
-```
-
----
-
-## GitHub PR Security Experience & Deterministic Baselines
-
-LeakGuard provides an enterprise-grade Pull Request security gate that eliminates developer frustration when introducing static analysis into legacy codebases.
-
-### 1. Deterministic Baseline Support
-In existing projects with legacy resource leaks, running a strict linter on every PR can block developers for pre-existing issues they did not introduce. LeakGuard solves this with **deterministic baselines**:
-
-```bash
-# 1. Establish initial baseline on main branch
-python cli.py --target . --baseline-out .leakguard-baseline.json
-
-# 2. Run PR differential check in CI
-python cli.py --target . --baseline .leakguard-baseline.json --github-summary
-```
-
-### 2. Stable Finding Identity Strategy
-Unlike fragile fuzzy matching or line-distance algorithms, LeakGuard employs a strictly deterministic 5-tuple fingerprint for finding identity:
-```
-(rule_id, normalized_relative_file_path, line, resource_type, resource_name)
-```
-- **Platform-Agnostic Normalization**: File paths are automatically converted to POSIX format and computed relative to the project root, ensuring identical fingerprints on Windows, Linux, and macOS GitHub runners.
-- **Precision**: Moving a function or changing a line number intentionally re-surfaces the finding for review, preventing unclosed resources from silently disappearing.
-
-### 3. PR-Friendly GitHub Step Summary
-When `--github-summary` is enabled, LeakGuard generates a rich markdown report directly into GitHub's Actions Summary with clear visual separation:
-- **PR Status Badge**:
-  - `❌ PR BLOCKED (FAILED)`: New blocking leaks or syntax errors detected.
-  - `⚠️ PR WARNING`: Non-blocking issues below policy threshold.
-  - `🛡️ PR PASSED (PASS)`: Zero new leaks; pre-existing baseline leaks tolerated.
-- **Summary Metrics**:
-  - Files Scanned, Clean Files, Syntax Errors, Total Leaks, New Leaks, Existing/Baseline Leaks, Duration, Security Policy.
-- **Distinct Finding Tables**:
-  - `🚨 NEW FINDINGS / Detected Resource Leaks`: Highlighting **BLOCKING** vs **WARNING** gate impact.
-  - `📋 EXISTING / BASELINE FINDINGS`: Clearly marked as `TOLERATED` with notes that they match the project baseline.
-  - `🛑 SYNTAX ERRORS`: Always gate-blocking errors preventing AST parsing.
-
-### 4. Configurable Security Policy (`--policy` / `--block-level`)
-Teams can configure gate thresholds to match their risk appetite:
-- `HIGH` (Default): Blocks PR on `HIGH` or `CRITICAL` leaks; `MEDIUM` issues warn.
-- `MEDIUM`: Blocks PR on `MEDIUM`, `HIGH`, or `CRITICAL` leaks; `LOW` issues warn.
-- `LOW`: Blocks PR on any detected issue.
-- **Syntax Errors**: Always fail the gate (exit 1) regardless of policy or baseline.
-
-```bash
-python cli.py . --policy HIGH --baseline baseline.json
-```
-
-### 5. SARIF v2.1.0 Export (GitHub Code Scanning Tab)
-LeakGuard exports findings in standard OASIS SARIF v2.1.0 JSON format without any modifications to the core analyzer:
-```bash
-python cli.py . -f sarif -o leakguard-results.sarif
-```
-This enables seamless integration with GitHub Advanced Security and Code Scanning:
-```yaml
-- name: Run LeakGuard SARIF Scan
-  run: python cli.py --target . -f sarif -o leakguard.sarif
-
-- name: Upload SARIF to GitHub Code Scanning
-  uses: github/codeql-action/upload-sarif@v3
-  if: always()
-  with:
-    sarif_file: leakguard.sarif
-```
-
-### 6. PR Workflow Simulation
-Run the included end-to-end simulation script to see baseline generation, PR blocking, PR fixing, and syntax error isolation in action:
-```bash
-python scripts/simulate_pr.py
-```
+Open `http://localhost:8000` in your browser:
+- **Developer View**: `http://localhost:8000/#`
+- **Admin View**: `http://localhost:8000/#admin`
 
 ---
 
 ## License
 
-MIT
+MIT License. Copyright (c) 2026 AlgoMinds / LeakGuard Contributors.

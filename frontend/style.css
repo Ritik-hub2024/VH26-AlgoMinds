@@ -1191,3 +1191,38 @@ body {
   padding: 0.2rem 0.5rem;
   border-radius: 4px;
 }
+
+/* ============================================================
+   Step 10: Policy & Explainable Findings Styles
+   ============================================================ */
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.policy-item {
+  background: rgba(30, 41, 59, 0.45);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.policy-badge-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.policy-detail {
+  font-size: 0.825rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.policy-detail strong {
+  color: var(--text-primary);
+}

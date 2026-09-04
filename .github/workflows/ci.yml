@@ -10,6 +10,9 @@ jobs:
   test-and-analyze:
     name: Test & Analyze (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -85,3 +88,11 @@ jobs:
         run: |
           python cli.py --target python/leaks/ --baseline leak_baseline.json -f sarif -o results.sarif
           test -f results.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: results.sarif
+          category: leakguard-python-${{ matrix.python-version }}

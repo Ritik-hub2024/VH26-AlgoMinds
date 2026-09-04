@@ -233,6 +233,35 @@
           </div>
         </section>
 
+        <!-- Security Policy & Gate Configuration Overview -->
+        <section class="panel policy-summary-panel">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Active Security Gate Policy</h2>
+              <p class="panel-subtitle">Differential baseline gating and severity thresholds enforced during CI and developer scans</p>
+            </div>
+            <span class="badge badge-score-healthy">Policy: Standard (HIGH)</span>
+          </div>
+          <div class="policy-grid">
+            <div class="policy-item block">
+              <div class="policy-badge-wrap"><span class="badge badge-severity-high">HIGH / CRITICAL</span></div>
+              <div class="policy-detail"><strong>Blocks CI (Exit 1)</strong>: Definite unclosed file or database descriptors on any reachable path.</div>
+            </div>
+            <div class="policy-item warn">
+              <div class="policy-badge-wrap"><span class="badge badge-severity-medium">MEDIUM / LOW</span></div>
+              <div class="policy-detail"><strong>Warning (Exit 0)</strong>: Advisory lifecycle notices; surfaces in PR and CLI summaries without failing gates.</div>
+            </div>
+            <div class="policy-item unknown">
+              <div class="policy-badge-wrap"><span class="badge badge-classification-unknown">UNKNOWN</span></div>
+              <div class="policy-detail"><strong>Advisory by Default (Exit 0)</strong>: Ownership escaped local scope; blocked only when <code>--block-unknown</code> is enabled.</div>
+            </div>
+            <div class="policy-item baseline">
+              <div class="policy-badge-wrap"><span class="badge badge-baseline-tolerated">BASELINE</span></div>
+              <div class="policy-detail"><strong>Tolerated (Exit 0)</strong>: Pre-existing legacy leaks matching baseline fingerprints are tolerated; prevents PR disruption.</div>
+            </div>
+          </div>
+        </section>
+
         <!-- Project Health Portfolio Table -->
         <section class="panel">
           <div class="panel-header">
