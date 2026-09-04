@@ -182,7 +182,17 @@ async function runTest() {
   console.assert(elements['findings-container'].innerHTML.includes('No resource leaks detected'), 'Findings should show clean note');
   console.log('  PASS: Safe scan displays PASS and clean findings note.');
 
-  console.log('\nALL 4 FRONTEND SIMULATION TESTS PASSED SUCCESSFULLY!');
+  console.log('[TEST 5] Reset again and verify third scan works cleanly:');
+  resetFn();
+  console.assert(elements['status-title'].textContent === 'NOT SCANNED', 'Expected NOT SCANNED after second reset');
+  console.assert(String(elements['val-scanned'].textContent) === '0', 'Expected 0 files after second reset');
+  elements['scan-target-select'].value = 'examples';
+  await scanFn();
+  console.assert(elements['status-title'].textContent.includes('FAILED'), 'Status should be FAILED on rescanning examples');
+  console.assert(String(elements['val-scanned'].textContent) === '3', 'Expected 3 files on rescanning examples');
+  console.log('  PASS: Rescan after reset successfully completes second full cycle.');
+
+  console.log('\nALL 5 FRONTEND SIMULATION TESTS PASSED SUCCESSFULLY!');
 }
 
 runTest().catch(err => {

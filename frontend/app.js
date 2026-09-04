@@ -377,10 +377,13 @@ document.addEventListener('DOMContentLoaded', () => {
       renderReport(reportData, new Date());
     } catch (err) {
       console.error('[LeakGuard] Scan request error:', err);
-      // Fallback to local report.json if live API is temporarily unreachable
+      // Fallback to runtime report.json or static/sample_report.json if live API is temporarily unreachable
       try {
-        const fallbackRes = await fetch('./report.json', { cache: 'no-cache' });
-        if (fallbackRes.ok) {
+        let fallbackRes = await fetch('./report.json', { cache: 'no-cache' }).catch(() => null);
+        if (!fallbackRes || !fallbackRes.ok) {
+          fallbackRes = await fetch('./static/sample_report.json', { cache: 'no-cache' }).catch(() => null);
+        }
+        if (fallbackRes && fallbackRes.ok) {
           const fallbackData = await fallbackRes.json();
           renderReport(fallbackData, new Date());
           return;

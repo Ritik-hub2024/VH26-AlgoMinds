@@ -1,0 +1,60 @@
+{
+  "status": "FAILED",
+  "target": "examples",
+  "files_scanned": 3,
+  "clean_files": 1,
+  "syntax_errors": 1,
+  "leaks_detected": 1,
+  "last_scan": null,
+  "scan_duration_ms": 5.0,
+  "duration_seconds": 0.005,
+  "findings": [
+    {
+      "severity": "HIGH",
+      "file": "examples/resource_sample.py",
+      "line": 5,
+      "resource": "f (file)",
+      "variable": "f",
+      "reason": "Resource 'f' allocated at line 5 is not guaranteed to be closed.",
+      "leak_path": "L5: open() -> L8: return (leak)",
+      "recommendation": "Call 'f.close()' before returning at line 8, or use 'with open(...) as f:'."
+    }
+  ],
+  "syntax_errors_list": [
+    {
+      "file": "examples/invalid_syntax_sample.py",
+      "filename": "examples/invalid_syntax_sample.py",
+      "line": 5,
+      "column": 14,
+      "message": "'(' was never closed",
+      "text": "    result = (x + y * 2\n"
+    }
+  ],
+  "files": [
+    {
+      "file": "examples/invalid_syntax_sample.py",
+      "status": "SYNTAX ERROR",
+      "ast_details": "SyntaxError: '(' was never closed",
+      "location": "L5:14"
+    },
+    {
+      "file": "examples/resource_sample.py",
+      "status": "LEAK",
+      "ast_details": "1 resource leak(s) detected",
+      "location": "Line 5"
+    },
+    {
+      "file": "examples/valid_sample.py",
+      "status": "CLEAN",
+      "ast_details": "Clean AST parse",
+      "location": "Safe"
+    }
+  ],
+  "summary": {
+    "files_scanned": 3,
+    "clean_files": 1,
+    "syntax_errors_count": 1,
+    "issues_count": 1,
+    "duration_seconds": 0.005
+  }
+}

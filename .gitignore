@@ -68,3 +68,7 @@ venv.bak/
 # OS generated
 Thumbs.db
 .DS_Store
+
+# Runtime generated scan reports
+frontend/report.json
+

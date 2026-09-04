@@ -141,7 +141,41 @@ class TestServerHandler(unittest.TestCase):
         self.assertEqual(data["syntax_errors"], 1)
         self.assertEqual(len(data["syntax_errors_list"]), 1)
 
+    def test_static_sample_report_exists_and_valid(self):
+        """Verify frontend/static/sample_report.json exists with stable contract."""
+        from pathlib import Path
+        sample_path = Path(__file__).resolve().parent.parent / "frontend" / "static" / "sample_report.json"
+        self.assertTrue(sample_path.exists(), "frontend/static/sample_report.json must exist as stable sample")
+        with open(sample_path, "r", encoding="utf-8") as sf:
+            sample_data = json.load(sf)
+        self.assertIn("status", sample_data)
+        self.assertIn("files_scanned", sample_data)
+        self.assertIn("findings", sample_data)
+        self.assertIn("summary", sample_data)
+
+    def test_multiple_scans_and_reset_cycle(self):
+        """Verify sequential scan -> reset -> scan cycle operates correctly."""
+        # 1. First scan
+        self.handler.wfile = BytesIO()
+        self.handler._handle_api_scan("target=python/safe")
+        data1 = self._get_response_data()
+        self.assertEqual(data1["status"], "PASS")
+
+        # 2. Reset
+        self.handler.wfile = BytesIO()
+        self.handler._handle_api_reset()
+        reset_data = self._get_response_data()
+        self.assertEqual(reset_data["status"], "NOT_SCANNED")
+
+        # 3. Second scan
+        self.handler.wfile = BytesIO()
+        self.handler._handle_api_scan("target=python/leaks")
+        data2 = self._get_response_data()
+        self.assertEqual(data2["status"], "FAILED")
+        self.assertEqual(data2["leaks_detected"], 6)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
