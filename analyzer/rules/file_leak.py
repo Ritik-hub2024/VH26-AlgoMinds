@@ -139,70 +139,177 @@ class FileLeakRule(BaseRule):
     # -------------------------------------------------------------------------
 
     def _analyze_statement_block(
-        self, statements: List[ast.stmt], function_name: Optional[str]
+        self,
+        statements: List[ast.stmt],
+        function_name: Optional[str],
+        parent_try: Optional[ast.Try] = None,
+        outer_subsequent: Optional[List[ast.stmt]] = None,
     ) -> None:
         """Analyze a linear block of statements for resource allocations and guarantees of closing."""
         for i, stmt in enumerate(statements):
             # 1. Check for 'with open(...) as f:' pattern (Safe Context Manager)
             if isinstance(stmt, (ast.With, ast.AsyncWith)):
                 self._handle_with_statement(stmt, function_name)
+                # Recurse into with-block body to check for any nested raw open calls
+                self._analyze_statement_block(
+                    stmt.body,
+                    function_name=function_name,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                )
                 continue
 
             # 2. Check for manual 'f = open(...)' assignment
             alloc_info = self._extract_open_assignment(stmt)
-            if not alloc_info:
+            if alloc_info:
+                var_name, open_line, target_node = alloc_info
+
+                resource = Resource(
+                    variable_name=var_name,
+                    resource_type="file",
+                    opening_line=open_line,
+                    function_name=function_name,
+                    status="LEAK",
+                    file_path=self.current_file,
+                )
+
+                subsequent_stmts = statements[i + 1 :] + (outer_subsequent or [])
+
+                # If parent_try has a guaranteed finally close, evaluate that first
+                if parent_try and parent_try.finalbody:
+                    finally_close = self._find_close_in_stmts(parent_try.finalbody, var_name)
+                    if finally_close and not self._find_unclosed_exit_detail(parent_try.finalbody, var_name):
+                        resource.status = "SAFE"
+                        resource.closing_line = finally_close
+                        resource.explanation = f"Guaranteed closed in finally block at line {finally_close}."
+                        resource.leak_path = None
+                        self.resources.append(resource)
+                        continue
+
+                status, close_line, problem, leak_path, recommendation = (
+                    self._evaluate_control_flow(
+                        var_name=var_name,
+                        open_line=open_line,
+                        subsequent_stmts=subsequent_stmts,
+                        function_name=function_name,
+                    )
+                )
+
+                # If parent_try exists without finally close, check parent_try handlers
+                if parent_try and status == "SAFE":
+                    for h in parent_try.handlers:
+                        h_exit = self._find_unclosed_exit_detail(h.body, var_name)
+                        if h_exit:
+                            exit_line, exit_type = h_exit
+                            exc_type_str = self._format_node(h.type) if h.type else ""
+                            exc_desc = f"except {exc_type_str}" if exc_type_str else "except"
+                            status = "LEAK"
+                            close_line = None
+                            problem = (
+                                f"Resource '{var_name}' opened at line {open_line} is not closed on exception path "
+                                f"'{exc_desc}' at line {h.lineno} due to {exit_type} at line {exit_line}."
+                            )
+                            leak_path = (
+                                f"L{open_line}: open() -> L{parent_try.lineno}: try -> L{h.lineno}: {exc_desc} "
+                                f"-> L{exit_line}: {exit_type} (leak)"
+                            )
+                            recommendation = (
+                                f"Ensure '{var_name}.close()' is called in a 'finally:' block or inside the '{exc_desc}' handler, "
+                                f"or use 'with open(...) as {var_name}:'."
+                            )
+                            break
+
+                resource.status = status
+                resource.closing_line = close_line
+                resource.explanation = problem
+                resource.leak_path = leak_path
+                self.resources.append(resource)
+
+                if status == "LEAK":
+                    scope_desc = (
+                        f"in function '{function_name}'"
+                        if function_name
+                        else "at module level"
+                    )
+                    message = (
+                        f"Resource '{var_name}' (type: file) allocated at line {open_line} {scope_desc} "
+                        f"is not guaranteed to be closed: {problem}"
+                    )
+                    self.add_issue(
+                        node=target_node,
+                        message=message,
+                        recommendation=recommendation,
+                        severity=self.severity,
+                        resource_name=var_name,
+                        resource_type="file",
+                        problem=problem,
+                        leak_path=leak_path or f"L{open_line}: open()",
+                        function_name=function_name or "<module>",
+                    )
                 continue
 
-            var_name, open_line, target_node = alloc_info
-
-            # Create initial Resource object
-            resource = Resource(
-                variable_name=var_name,
-                resource_type="file",
-                opening_line=open_line,
-                function_name=function_name,
-                status="LEAK",
-                file_path=self.current_file,
-            )
-
-            # Analyze subsequent statements for guaranteed close via control-flow analysis
-            subsequent_stmts = statements[i + 1 :]
-            status, close_line, problem, leak_path, recommendation = (
-                self._evaluate_control_flow(
-                    var_name=var_name,
-                    open_line=open_line,
-                    subsequent_stmts=subsequent_stmts,
+            # 3. Recurse into Try statements for allocations inside try blocks
+            if isinstance(stmt, ast.Try):
+                self._analyze_statement_block(
+                    stmt.body,
                     function_name=function_name,
+                    parent_try=stmt,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
                 )
-            )
+                if stmt.orelse:
+                    self._analyze_statement_block(
+                        stmt.orelse,
+                        function_name=function_name,
+                        parent_try=stmt,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                for h in stmt.handlers:
+                    self._analyze_statement_block(
+                        h.body,
+                        function_name=function_name,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                if stmt.finalbody:
+                    self._analyze_statement_block(
+                        stmt.finalbody,
+                        function_name=function_name,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
 
-            resource.status = status
-            resource.closing_line = close_line
-            resource.explanation = problem
-            resource.leak_path = leak_path
-            self.resources.append(resource)
+            # 4. Recurse into If statements for allocations inside branches
+            if isinstance(stmt, ast.If):
+                self._analyze_statement_block(
+                    stmt.body,
+                    function_name=function_name,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                )
+                if stmt.orelse:
+                    self._analyze_statement_block(
+                        stmt.orelse,
+                        function_name=function_name,
+                        parent_try=parent_try,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
 
-            if status == "LEAK":
-                scope_desc = (
-                    f"in function '{function_name}'"
-                    if function_name
-                    else "at module level"
+            # 5. Recurse into loop statements
+            if isinstance(stmt, (ast.For, ast.AsyncFor, ast.While)):
+                self._analyze_statement_block(
+                    stmt.body,
+                    function_name=function_name,
+                    parent_try=parent_try,
+                    outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
                 )
-                message = (
-                    f"Resource '{var_name}' (type: file) allocated at line {open_line} {scope_desc} "
-                    f"is not guaranteed to be closed: {problem}"
-                )
-                self.add_issue(
-                    node=target_node,
-                    message=message,
-                    recommendation=recommendation,
-                    severity=self.severity,
-                    resource_name=var_name,
-                    resource_type="file",
-                    problem=problem,
-                    leak_path=leak_path or f"L{open_line}: open()",
-                    function_name=function_name or "<module>",
-                )
+                if stmt.orelse:
+                    self._analyze_statement_block(
+                        stmt.orelse,
+                        function_name=function_name,
+                        parent_try=parent_try,
+                        outer_subsequent=statements[i + 1 :] + (outer_subsequent or []),
+                    )
+                continue
 
     def _handle_with_statement(
         self, node: ast.AST, function_name: Optional[str]
@@ -276,18 +383,57 @@ class FileLeakRule(BaseRule):
                 recommendation = f"Wrap resource in 'try...finally' to guarantee '{var_name}.close()' runs on error."
                 return "LEAK", None, problem, leak_path, recommendation
 
-            # 3. Try / Finally block analysis
+            # 3. Try / Except / Finally block analysis
             if isinstance(stmt, ast.Try):
+                # 3a. Guaranteed close in finally block
                 finally_close = self._find_close_in_stmts(stmt.finalbody, var_name)
                 if finally_close:
-                    return (
-                        "SAFE",
-                        finally_close,
-                        f"Guaranteed closed in finally block at line {finally_close}.",
-                        None,
-                        "",
+                    finally_exit = self._find_unclosed_exit_detail(stmt.finalbody, var_name)
+                    if not finally_exit:
+                        return (
+                            "SAFE",
+                            finally_close,
+                            f"Guaranteed closed in finally block at line {finally_close}.",
+                            None,
+                            "",
+                        )
+
+                # 3b. Except handlers early return or raise before close
+                for h in stmt.handlers:
+                    exc_type_str = self._format_node(h.type) if h.type else ""
+                    exc_desc = f"except {exc_type_str}" if exc_type_str else "except"
+                    h_exit = self._find_unclosed_exit_detail(h.body, var_name)
+                    if h_exit:
+                        exit_line, exit_type = h_exit
+                        problem = (
+                            f"Resource '{var_name}' opened at line {open_line} is not closed on exception path "
+                            f"'{exc_desc}' at line {h.lineno} due to {exit_type} at line {exit_line}."
+                        )
+                        leak_path = (
+                            f"{base_path} -> L{stmt.lineno}: try -> L{h.lineno}: {exc_desc} "
+                            f"-> L{exit_line}: {exit_type} (leak)"
+                        )
+                        recommendation = (
+                            f"Ensure '{var_name}.close()' is called in a 'finally:' block or inside the '{exc_desc}' handler, "
+                            f"or use 'with open(...) as {var_name}:'."
+                        )
+                        return "LEAK", None, problem, leak_path, recommendation
+
+                # 3c. Try block early return before close
+                try_return = self._find_unclosed_return_in_stmts(stmt.body, var_name)
+                if try_return:
+                    problem = (
+                        f"Resource '{var_name}' opened at line {open_line} is not closed in try-block "
+                        f"due to early return at line {try_return}."
                     )
-                # If close is only in try body, an unhandled exception or return inside try is a leak
+                    leak_path = f"{base_path} -> L{stmt.lineno}: try -> L{try_return}: return (leak)"
+                    recommendation = (
+                        f"Ensure '{var_name}.close()' executes in a 'finally:' block, "
+                        f"or use 'with open(...) as {var_name}:'."
+                    )
+                    return "LEAK", None, problem, leak_path, recommendation
+
+                # 3d. Close in try-block but missing in finally block (leaks on error)
                 try_close = self._find_close_in_stmts(stmt.body, var_name)
                 if try_close:
                     problem = f"Closed in try-block at line {try_close}, but missing in finally block (leaks on error)."
@@ -301,7 +447,6 @@ class FileLeakRule(BaseRule):
                 if_desc = f"if {cond_text}"
 
                 # Check if TRUE branch has an unclosed return or raise
-                # Pattern: open -> if condition -> return -> close
                 exit_line = self._find_unclosed_exit_in_stmts(stmt.body, var_name)
                 if exit_line:
                     problem = (
@@ -374,28 +519,68 @@ class FileLeakRule(BaseRule):
             # Recursively check nested nodes
             for child in ast.walk(s):
                 if isinstance(child, ast.Call) and self._is_close_call(child, var_name):
-                    return child.lineno
+                    return getattr(child, "lineno", getattr(s, "lineno", None))
+        return None
+
+    def _find_unclosed_exit_detail(
+        self, stmts: List[ast.stmt], var_name: str
+    ) -> Optional[Tuple[int, str]]:
+        """Find line number and exit type ('return' or 'raise') of an exit occurring before var_name.close()."""
+        for s in stmts:
+            if isinstance(s, ast.Expr) and self._is_close_call(s.value, var_name):
+                return None  # Closed before any exit in this sequence
+
+            if isinstance(s, ast.Return):
+                return s.lineno, "return"
+
+            if isinstance(s, ast.Raise):
+                return s.lineno, "raise"
+
+            if isinstance(s, ast.If):
+                exit_body = self._find_unclosed_exit_detail(s.body, var_name)
+                if exit_body:
+                    return exit_body
+                if s.orelse:
+                    exit_else = self._find_unclosed_exit_detail(s.orelse, var_name)
+                    if exit_else:
+                        return exit_else
+
+            if isinstance(s, ast.Try):
+                finally_close = self._find_close_in_stmts(s.finalbody, var_name)
+                if not finally_close:
+                    try_exit = self._find_unclosed_exit_detail(s.body, var_name)
+                    if try_exit:
+                        return try_exit
+                    for h in s.handlers:
+                        h_exit = self._find_unclosed_exit_detail(h.body, var_name)
+                        if h_exit:
+                            return h_exit
+
         return None
 
     def _find_unclosed_exit_in_stmts(
         self, stmts: List[ast.stmt], var_name: str
     ) -> Optional[int]:
         """Find line of a return/raise statement that occurs before any var_name.close() in statements."""
+        detail = self._find_unclosed_exit_detail(stmts, var_name)
+        return detail[0] if detail else None
+
+    def _find_unclosed_return_in_stmts(
+        self, stmts: List[ast.stmt], var_name: str
+    ) -> Optional[int]:
+        """Find line number of a return occurring before any var_name.close() in statements."""
         for s in stmts:
             if isinstance(s, ast.Expr) and self._is_close_call(s.value, var_name):
-                return None  # Closed before any exit in this block
-
-            if isinstance(s, (ast.Return, ast.Raise)):
+                return None
+            if isinstance(s, ast.Return):
                 return s.lineno
-
-            # If statement inside branch (nested if)
             if isinstance(s, ast.If):
-                nested_exit = self._find_unclosed_exit_in_stmts(s.body, var_name)
-                if nested_exit:
-                    return nested_exit
+                exit_body = self._find_unclosed_return_in_stmts(s.body, var_name)
+                if exit_body:
+                    return exit_body
                 if s.orelse:
-                    nested_else = self._find_unclosed_exit_in_stmts(s.orelse, var_name)
-                    if nested_else:
-                        return nested_else
-
+                    exit_else = self._find_unclosed_return_in_stmts(s.orelse, var_name)
+                    if exit_else:
+                        return exit_else
         return None
+

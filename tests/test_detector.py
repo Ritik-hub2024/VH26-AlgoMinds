@@ -207,6 +207,103 @@ def branch_asymmetric(flag):
         assert len(rule.issues) == 1
         assert "else" in rule.issues[0].leak_path
 
+    def test_try_except_early_return_is_leak(self, parser, rule):
+        """Verify that early return inside an except handler is flagged as an exception path leak."""
+        code = """
+def parse_record(path):
+    f = open(path, "r")
+    try:
+        data = f.read()
+    except ValueError:
+        return "DEFAULT"
+    f.close()
+    return data
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert len(rule.issues) == 1
+        issue = rule.issues[0]
+        assert issue.resource_name == "f"
+        assert "except ValueError" in issue.leak_path
+        assert "return (leak)" in issue.leak_path
+        assert "except ValueError" in issue.problem
+
+    def test_try_except_raise_is_leak(self, parser, rule):
+        """Verify that raise inside an except handler is flagged as an exception path leak."""
+        code = """
+def parse_record(path):
+    f = open(path, "r")
+    try:
+        data = f.read()
+    except OSError:
+        raise
+    f.close()
+    return data
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert len(rule.issues) == 1
+        issue = rule.issues[0]
+        assert "except OSError" in issue.leak_path
+        assert "raise (leak)" in issue.leak_path
+
+    def test_try_finally_with_except_is_safe(self, parser, rule):
+        """Verify that close in finally block ensures safety even when except returns early."""
+        code = """
+def parse_record_safe(path):
+    f = open(path, "r")
+    try:
+        data = f.read()
+        return data
+    except ValueError:
+        return "DEFAULT"
+    finally:
+        f.close()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(rule.issues) == 0
+
+    def test_open_inside_try_with_finally_is_safe(self, parser, rule):
+        """Verify that open() inside try with f.close() in finally is safe."""
+        code = """
+def load_inside_try(path):
+    try:
+        f = open(path, "r")
+        return f.read()
+    finally:
+        f.close()
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(rule.issues) == 0
+
+    def test_try_close_without_finally_is_leak(self, parser, rule):
+        """Verify that close() only inside try body without finally leaks if exceptions occur."""
+        code = """
+def close_only_in_try(path):
+    f = open(path, "r")
+    try:
+        data = f.read()
+        f.close()
+    except ValueError:
+        pass
+"""
+        parse_res = parser.parse_source(code)
+        resources = rule.detect_resources(parse_res.tree)
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert len(rule.issues) == 1
+        assert "try (exception path leaks)" in rule.issues[0].leak_path
+
 
 class TestSampleFilesUnderPython:
     """Validate detector behavior against all sample files in python/."""
@@ -226,6 +323,15 @@ class TestSampleFilesUnderPython:
 
     def test_safe_try_finally_py(self, parser, rule, python_dir):
         file_path = python_dir / "safe_try_finally.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].status == "SAFE"
+        assert len(rule.issues) == 0
+
+    def test_safe_finally_py(self, parser, rule, python_dir):
+        file_path = python_dir / "safe_finally.py"
         parse_res = parser.parse_file(file_path)
         assert parse_res.success
         resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
@@ -285,3 +391,14 @@ class TestSampleFilesUnderPython:
         assert resources[0].status == "LEAK"
         assert len(rule.issues) == 1
         assert "else" in rule.issues[0].leak_path
+
+    def test_leak_exception_py(self, parser, rule, python_dir):
+        file_path = python_dir / "leak_exception.py"
+        parse_res = parser.parse_file(file_path)
+        assert parse_res.success
+        resources = rule.detect_resources(parse_res.tree, file_path=str(file_path))
+        assert len(resources) == 1
+        assert resources[0].status == "LEAK"
+        assert len(rule.issues) == 1
+        assert "except ValueError" in rule.issues[0].leak_path
+        assert "return (leak)" in rule.issues[0].leak_path
