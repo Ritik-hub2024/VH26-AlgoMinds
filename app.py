@@ -777,9 +777,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             if req_path:
                 cand_path = Path(req_path).resolve()
-                if cand_path.exists() and cand_path.is_dir():
-                    workspace = self.ws_mgr.create_workspace(cand_path.name, cand_path, is_temp=False)
-                    scan_path = cand_path
+                if cand_path.exists():
+                    if cand_path.is_file():
+                        workspace = self.ws_mgr.create_workspace(cand_path.stem, cand_path.parent, is_temp=False)
+                        scan_path = cand_path
+                    elif cand_path.is_dir():
+                        workspace = self.ws_mgr.create_workspace(cand_path.name, cand_path, is_temp=False)
+                        if target_sub and (cand_path / target_sub).exists():
+                            scan_path = cand_path / target_sub
+                        else:
+                            scan_path = cand_path
             elif target_sub:
                 sub_candidate = (workspace.root_path / target_sub).resolve()
                 try:
@@ -788,9 +795,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         scan_path = sub_candidate
                 except ValueError:
                     abs_cand = Path(target_sub).resolve()
-                    if abs_cand.exists() and abs_cand.is_dir():
-                        workspace = self.ws_mgr.create_workspace(abs_cand.name, abs_cand, is_temp=False)
-                        scan_path = abs_cand
+                    if abs_cand.exists():
+                        if abs_cand.is_file():
+                            workspace = self.ws_mgr.create_workspace(abs_cand.stem, abs_cand.parent, is_temp=False)
+                            scan_path = abs_cand
+                        elif abs_cand.is_dir():
+                            workspace = self.ws_mgr.create_workspace(abs_cand.name, abs_cand, is_temp=False)
+                            scan_path = abs_cand
 
             import importlib
             importlib.reload(cli)
