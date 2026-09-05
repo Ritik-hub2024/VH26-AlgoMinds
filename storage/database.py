@@ -887,96 +887,182 @@ class Database:
                 "ci_blocked": ci_blocked,
             }
 
-    def get_analytics(self) -> Dict[str, Any]:
-        """Prepare analytics for leak trends, resource breakdown, and CI statistics."""
+    def get_analytics(
+        self, project_id: Optional[str] = None, days: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Prepare analytics for leak trends, resource breakdown, and CI statistics with time & project filtering."""
+        from datetime import timedelta
+
         with self._connection() as conn:
             cur = conn.cursor()
 
-            # Leaks over time (from latest 30 scans)
+            # Build where clause for scans
+            scan_conditions: List[str] = []
+            scan_params: List[Any] = []
+
+            if project_id and project_id not in ("all", "ALL", ""):
+                scan_conditions.append("s.project_id = ?")
+                scan_params.append(project_id)
+
+            if days and days > 0:
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+                scan_conditions.append("s.timestamp >= ?")
+                scan_params.append(cutoff)
+
+            scan_where = f"WHERE {' AND '.join(scan_conditions)}" if scan_conditions else ""
+
+            # 1. Leaks over time / Trend (Confirmed LEAK findings only per scan)
             cur.execute(
-                """
-                SELECT scan_id, timestamp, target, leaks_detected, status
-                FROM scans
-                ORDER BY timestamp ASC, rowid ASC
+                f"""
+                SELECT 
+                    s.scan_id, 
+                    s.timestamp, 
+                    s.target, 
+                    s.status,
+                    COUNT(CASE WHEN f.classification = 'LEAK' AND f.is_baseline = 0 THEN 1 END) AS confirmed_leaks,
+                    COUNT(CASE WHEN f.ownership_status = 'UNKNOWN' THEN 1 END) AS unknown_leaks
+                FROM scans s
+                LEFT JOIN findings f ON s.scan_id = f.scan_id
+                {scan_where}
+                GROUP BY s.scan_id, s.timestamp, s.target, s.status
+                ORDER BY s.timestamp ASC, s.rowid ASC
                 LIMIT 50
-                """
+                """,
+                scan_params,
             )
-            leaks_over_time = [
+            raw_scans = cur.fetchall()
+
+            trend = [
                 {
                     "scan_id": r["scan_id"],
                     "timestamp": r["timestamp"],
                     "target": r["target"],
-                    "leaks": r["leaks_detected"],
+                    "leak_count": r["confirmed_leaks"] or 0,
+                    "leaks": r["confirmed_leaks"] or 0,
+                    "unknown_leaks": r["unknown_leaks"] or 0,
                     "status": r["status"],
                 }
-                for r in cur.fetchall()
+                for r in raw_scans
             ]
 
-            # Leaks by resource type (from all recorded findings)
+            # 2. Resource Types Distribution (from confirmed non-baseline leaks)
+            finding_conditions: List[str] = ["f.classification = 'LEAK'", "f.is_baseline = 0"]
+            finding_params: List[Any] = []
+
+            if project_id and project_id not in ("all", "ALL", ""):
+                finding_conditions.append("s.project_id = ?")
+                finding_params.append(project_id)
+
+            if days and days > 0:
+                cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+                finding_conditions.append("s.timestamp >= ?")
+                finding_params.append(cutoff)
+
+            finding_where = f"WHERE {' AND '.join(finding_conditions)}"
+
             cur.execute(
-                """
-                SELECT resource, COUNT(*) AS count
-                FROM findings
-                GROUP BY resource
+                f"""
+                SELECT 
+                    CASE 
+                        WHEN LOWER(f.resource) LIKE '%sqlite%' THEN 'SQLite Connection'
+                        WHEN LOWER(f.resource) LIKE '%file%' OR f.resource = 'file' THEN 'File'
+                        WHEN LOWER(f.resource) LIKE '%socket%' THEN 'Socket'
+                        WHEN LOWER(f.resource) LIKE '%thread%' OR LOWER(f.resource) LIKE '%process%' THEN 'Thread / Process'
+                        WHEN LOWER(f.resource) LIKE '%db%' OR LOWER(f.resource) LIKE '%cursor%' THEN 'Database Cursor'
+                        ELSE f.resource 
+                    END AS resource_type,
+                    COUNT(*) AS count
+                FROM findings f
+                JOIN scans s ON f.scan_id = s.scan_id
+                {finding_where}
+                GROUP BY resource_type
                 ORDER BY count DESC
-                """
+                """,
+                finding_params,
             )
-            leaks_by_resource = [
-                {"resource": r["resource"], "count": r["count"]}
-                for r in cur.fetchall()
+            raw_resources = cur.fetchall()
+            resource_types = [
+                {"type": r["resource_type"], "resource_type": r["resource_type"], "resource": r["resource_type"], "count": r["count"]}
+                for r in raw_resources
             ]
 
-            # Leaks by project
+            # 3. Unknown ownership findings count (tracked separately)
             cur.execute(
-                """
+                f"""
+                SELECT COUNT(*) as count
+                FROM findings f
+                JOIN scans s ON f.scan_id = s.scan_id
+                WHERE f.ownership_status = 'UNKNOWN'
+                {"AND s.project_id = ?" if (project_id and project_id not in ("all", "ALL", "")) else ""}
+                {"AND s.timestamp >= ?" if (days and days > 0) else ""}
+                """,
+                [p for p in (scan_params if scan_params else [])],
+            )
+            unknown_count = cur.fetchone()["count"] or 0
+
+            # 4. Leaks by project
+            cur.execute(
+                f"""
                 SELECT p.name AS project_name, SUM(s.leaks_detected) AS total_leaks
                 FROM projects p
                 JOIN scans s ON p.project_id = s.project_id
+                {scan_where}
                 GROUP BY p.project_id
                 ORDER BY total_leaks DESC
-                """
+                """,
+                scan_params,
             )
             leaks_by_project = [
                 {"project_name": r["project_name"], "leaks": r["total_leaks"] or 0}
                 for r in cur.fetchall()
             ]
 
-            # Scans over time (grouped by date)
+            # 5. Scans over time (grouped by date)
             cur.execute(
-                """
-                SELECT substr(timestamp, 1, 10) AS scan_date, COUNT(*) AS count
-                FROM scans
+                f"""
+                SELECT substr(s.timestamp, 1, 10) AS scan_date, COUNT(*) AS count
+                FROM scans s
+                {scan_where}
                 GROUP BY scan_date
                 ORDER BY scan_date ASC
-                """
+                """,
+                scan_params,
             )
             scans_over_time = [
                 {"date": r["scan_date"], "count": r["count"]}
                 for r in cur.fetchall()
             ]
 
-            # CI failure stats
-            cur.execute(
-                "SELECT COUNT(*) as failed FROM scans WHERE status = 'FAILED'"
-            )
+            # 6. CI failure stats
+            ci_where_failed = f"{scan_where} {'AND' if scan_where else 'WHERE'} s.status = 'FAILED'"
+            cur.execute(f"SELECT COUNT(*) as failed FROM scans s {ci_where_failed}", scan_params)
             ci_failures = cur.fetchone()["failed"] or 0
 
-            cur.execute(
-                "SELECT COUNT(*) as passed FROM scans WHERE status = 'PASS'"
-            )
+            ci_where_passed = f"{scan_where} {'AND' if scan_where else 'WHERE'} s.status = 'PASS'"
+            cur.execute(f"SELECT COUNT(*) as passed FROM scans s {ci_where_passed}", scan_params)
             ci_passes = cur.fetchone()["passed"] or 0
 
-            has_data = len(leaks_over_time) > 0
+            has_data = len(trend) > 0
+            total_confirmed_leaks = sum(t["leak_count"] for t in trend)
 
             return {
                 "has_data": has_data,
-                "leaks_over_time": leaks_over_time,
-                "leaks_by_resource": leaks_by_resource,
+                "total_confirmed_leaks": total_confirmed_leaks,
+                "unknown_ownership_count": unknown_count,
+                "unknown_count": unknown_count,
+                "trend": trend,
+                "leaks_over_time": trend,
+                "resource_types": resource_types,
+                "leaks_by_resource": resource_types,
                 "leaks_by_project": leaks_by_project,
                 "scans_over_time": scans_over_time,
                 "ci_stats": {
                     "failures": ci_failures,
                     "passes": ci_passes,
                     "total": ci_failures + ci_passes,
+                },
+                "filter_info": {
+                    "project_id": project_id or "all",
+                    "days": days,
                 },
             }

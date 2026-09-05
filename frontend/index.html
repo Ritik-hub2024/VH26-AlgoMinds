@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LeakGuard - Static Analyzer & Admin Dashboard</title>
+  <title>LeakGuard - Security Remediation Platform & Static Analyzer</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,23 +11,30 @@
 </head>
 <body>
   <div class="app-container">
-    <!-- Header with Branding and Last Scan Info -->
+    <!-- Header with Branding, Last Scan, and GitHub Status -->
     <header class="header">
       <div class="brand">
         <div class="brand-logo" aria-hidden="true">🛡️</div>
         <div>
           <h1 class="brand-title">LeakGuard</h1>
-          <p class="brand-subtitle">Pure AST Python Static Analyzer</p>
+          <p class="brand-subtitle">Secure • Detect • Fix • Commit — Pure AST Static Remediation</p>
         </div>
       </div>
       <div class="header-right">
+        <!-- GitHub Connection Badge -->
+        <div class="github-status-box" id="github-status-box">
+          <span class="gh-icon">🐙</span>
+          <div class="gh-info">
+            <span class="gh-label">GitHub Source</span>
+            <span class="gh-repo" id="header-github-repo">Local Workspace</span>
+          </div>
+        </div>
         <!-- Last Scan Widget -->
         <div class="last-scan-box" id="last-scan-container">
           <div class="last-scan-label">Last Scan</div>
           <div class="last-scan-value" id="last-scan-text">Not scanned yet</div>
           <div class="last-scan-sub" id="last-scan-duration" style="display: none;"></div>
         </div>
-        <div class="header-badge">Jury Demo v1.0</div>
       </div>
     </header>
 
@@ -35,110 +42,265 @@
     <nav class="navigation-bar" role="tablist" aria-label="Dashboard Views">
       <div class="nav-tabs">
         <button class="nav-tab active" id="tab-dev" role="tab" aria-selected="true" aria-controls="view-developer">
-          <span class="nav-tab-icon">⚡</span> Developer View
+          <span class="nav-tab-icon">⚡</span> Developer Remediation View
         </button>
         <button class="nav-tab" id="tab-admin" role="tab" aria-selected="false" aria-controls="view-admin">
           <span class="nav-tab-icon">📊</span> Admin & Product Owner
         </button>
       </div>
       <div class="nav-status-group">
-        <span class="nav-pill" id="nav-mode-badge">Developer Mode</span>
+        <span class="nav-pill" id="nav-mode-badge">Remediation Mode</span>
       </div>
     </nav>
 
     <main class="main-content">
       <!-- ============================================================ -->
-      <!-- DEVELOPER VIEW (Interactive live scanning & findings)        -->
+      <!-- DEVELOPER VIEW (Full Remediation Workflow)                   -->
       <!-- ============================================================ -->
       <div id="view-developer" class="view-panel active">
-        <!-- Strong PASS / FAILED Status Banner -->
+
+        <!-- Top Workflow Stepper Progress Bar -->
+        <section class="workflow-stepper-card" aria-label="Remediation Workflow Progress">
+          <div class="stepper-title-row">
+            <span class="stepper-section-title">REMEDIATION WORKFLOW</span>
+            <span class="stepper-current-state" id="workflow-state-badge">STATE: IDLE</span>
+          </div>
+          <div class="stepper-track">
+            <div class="step-node active" id="step-node-1" data-step="1">
+              <div class="step-badge">1</div>
+              <div class="step-text">
+                <span class="step-label">Upload</span>
+                <span class="step-sub" id="step-sub-1">Ready</span>
+              </div>
+            </div>
+            <div class="step-line" id="step-line-1"></div>
+
+            <div class="step-node pending" id="step-node-2" data-step="2">
+              <div class="step-badge">2</div>
+              <div class="step-text">
+                <span class="step-label">Scan</span>
+                <span class="step-sub" id="step-sub-2">Pending</span>
+              </div>
+            </div>
+            <div class="step-line" id="step-line-2"></div>
+
+            <div class="step-node pending" id="step-node-3" data-step="3">
+              <div class="step-badge">3</div>
+              <div class="step-text">
+                <span class="step-label">Findings</span>
+                <span class="step-sub" id="step-sub-3">Pending</span>
+              </div>
+            </div>
+            <div class="step-line" id="step-line-3"></div>
+
+            <div class="step-node pending" id="step-node-4" data-step="4">
+              <div class="step-badge">4</div>
+              <div class="step-text">
+                <span class="step-label">Fix</span>
+                <span class="step-sub" id="step-sub-4">Pending</span>
+              </div>
+            </div>
+            <div class="step-line" id="step-line-4"></div>
+
+            <div class="step-node pending" id="step-node-5" data-step="5">
+              <div class="step-badge">5</div>
+              <div class="step-text">
+                <span class="step-label">Verify</span>
+                <span class="step-sub" id="step-sub-5">Pending</span>
+              </div>
+            </div>
+            <div class="step-line" id="step-line-5"></div>
+
+            <div class="step-node pending" id="step-node-6" data-step="6">
+              <div class="step-badge">6</div>
+              <div class="step-text">
+                <span class="step-label">Commit</span>
+                <span class="step-sub" id="step-sub-6">Pending</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Strong Status Banner -->
         <section class="status-section" aria-live="polite">
           <div class="status-banner status-not-scanned" id="scan-status-banner">
             <div class="status-icon-wrap">
               <span class="status-icon" id="status-icon">○</span>
             </div>
             <div class="status-info">
-              <div class="status-title" id="status-title">NOT SCANNED</div>
-              <div class="status-desc" id="status-desc">Run a Python project scan to begin.</div>
+              <div class="status-title" id="status-title">PROJECT READY</div>
+              <div class="status-desc" id="status-desc">Upload a ZIP project, connect GitHub, or select a Python suite to start security remediation.</div>
             </div>
             <div class="status-progress-steps" id="status-progress-steps" style="display: none;">
               <div class="spinner"></div>
-              <span id="status-step-text">Scanning Python files...</span>
+              <span id="status-step-text">Scanning Python AST...</span>
             </div>
           </div>
         </section>
 
-        <!-- Metrics Overview -->
+        <!-- PROJECT SOURCE SECTION -->
+        <section class="panel project-source-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Project Source</h2>
+              <p class="panel-subtitle">Upload a complete Python project ZIP archive, connect a GitHub repository, or select built-in targets</p>
+            </div>
+            <div class="source-quick-actions">
+              <button class="btn btn-secondary" id="btn-clear" title="Reset dashboard state">Reset</button>
+            </div>
+          </div>
+
+          <div class="source-cards-grid">
+            <!-- Card 1: Upload ZIP (Primary) -->
+            <div class="source-card primary-source-card" id="card-upload-zip">
+              <div class="source-card-icon">📦</div>
+              <div class="source-card-content">
+                <div class="source-card-title">Upload Project ZIP</div>
+                <div class="source-card-desc">Safely unzips and analyzes full Python codebases with zero code execution.</div>
+              </div>
+              <input type="file" id="input-upload-zip" accept=".zip" style="display:none;">
+              <button class="btn btn-primary btn-source" id="btn-upload-zip">
+                <span class="btn-icon">📦</span>
+                <span>Upload ZIP</span>
+              </button>
+            </div>
+
+            <!-- Card 2: Connect GitHub (Secondary) -->
+            <div class="source-card" id="card-connect-github">
+              <div class="source-card-icon">🐙</div>
+              <div class="source-card-content">
+                <div class="source-card-title" id="gh-card-title">Connect GitHub</div>
+                <div class="source-card-desc" id="gh-card-desc">Link remote repository to commit verified security fixes and generate PRs.</div>
+                <!-- Connected State Badges (shown when connected) -->
+                <div class="gh-connected-details" id="gh-card-connected-details" style="display: none;">
+                  <span class="badge badge-clean" id="gh-card-badge">✓ Connected</span>
+                  <span class="gh-card-repo-name" id="gh-card-repo-name">owner/repo</span>
+                  <span class="gh-card-branch-name" id="gh-card-branch-name">🌿 main</span>
+                </div>
+              </div>
+              <div class="gh-card-actions" id="gh-card-actions">
+                <button class="btn btn-github btn-source" id="btn-open-github-modal">
+                  <span class="btn-icon">🐙</span>
+                  <span id="btn-open-github-text">Connect GitHub</span>
+                </button>
+                <div class="gh-card-connected-btns" id="gh-card-connected-btns" style="display: none;">
+                  <button class="btn btn-secondary btn-sm" id="btn-gh-change-repo" title="Change Repository">Change Repo</button>
+                  <button class="btn btn-secondary btn-sm" id="btn-gh-disconnect" title="Disconnect GitHub">Disconnect</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 3: Files / Target Selector -->
+            <div class="source-card" id="card-local-suite">
+              <div class="source-card-icon">📁</div>
+              <div class="source-card-content">
+                <div class="source-card-title">Select Local Suite / Files</div>
+                <div class="target-selector-wrapper">
+                  <label for="scan-target-select" class="visually-hidden">Scan Target</label>
+                  <select id="scan-target-select" class="scan-target-select" title="Choose Python target">
+                    <option value="examples" selected>📁 Examples Suite (examples/)</option>
+                    <option value="python">📁 Entire Test Suite (python/)</option>
+                    <option value="python/safe">🛡️ Safe Suite (python/safe/)</option>
+                    <option value="python/leaks">⚠️ Leaks Suite (python/leaks/)</option>
+                    <option value="python/syntax">❌ Syntax Suite (python/syntax/)</option>
+                    <option value="python/leaks/file_no_close.py">⚠️ Unclosed Return Leak (file_no_close.py)</option>
+                    <option value="python/leaks/early_return.py">⚠️ Early-Return Leak (early_return.py)</option>
+                    <option value="python/leaks/sqlite_leak.py">⚠️ SQLite Leak (sqlite_leak.py)</option>
+                    <option value="python/safe/sqlite_safe.py">🛡️ SQLite Safe (sqlite_safe.py)</option>
+                    <option value="python/safe/with_file.py">🛡️ Safe Context Manager (with_file.py)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="source-button-row">
+                <input type="file" id="input-upload-file" accept=".py" style="display:none;">
+                <input type="file" id="input-upload-folder" webkitdirectory directory multiple style="display:none;">
+                <button class="btn btn-upload-sm" id="btn-upload-file" title="Upload single .py file">📄 File</button>
+                <button class="btn btn-upload-sm" id="btn-upload-folder" title="Upload folder">📂 Folder</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Workspace Summary Card -->
+          <div class="workspace-summary-box" id="workspace-summary-box">
+            <div class="ws-summary-left">
+              <div class="ws-icon">📂</div>
+              <div class="ws-meta">
+                <div class="ws-name-row">
+                  <span class="ws-label">ACTIVE PROJECT:</span>
+                  <strong class="ws-name" id="ws-project-name">examples/</strong>
+                  <span class="badge badge-clean" id="ws-status-badge">Ready</span>
+                </div>
+                <div class="ws-stats-row">
+                  <span id="ws-files-count">3 Python files</span>
+                  <span class="stat-separator">•</span>
+                  <span id="ws-lines-count">~65 lines</span>
+                </div>
+              </div>
+            </div>
+            <div class="ws-summary-right">
+              <button class="btn btn-scan" id="btn-scan">
+                <span class="btn-icon">🔍</span>
+                <span id="btn-scan-text">Scan Project</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Dropzone area -->
+          <div class="dropzone" id="dropzone" tabindex="0">
+            <p>Drag & drop a Python project <strong>.ZIP</strong> archive, <code>.py</code> files, or click <strong>Upload ZIP</strong>.</p>
+          </div>
+        </section>
+
+        <!-- SCAN DASHBOARD METRICS -->
         <section class="metrics-grid" aria-label="Scan Metrics">
           <div class="metric-card">
-            <div class="metric-title">Files Scanned</div>
+            <div class="metric-title">FILES SCANNED</div>
             <div class="metric-value" id="val-scanned">0</div>
-            <div class="metric-sub">Across target path</div>
+            <div class="metric-sub">Across project workspace</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Clean Files</div>
+            <div class="metric-title">CLEAN FILES</div>
             <div class="metric-value text-green" id="val-clean">0</div>
             <div class="metric-sub">Zero leaks or syntax errors</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Syntax Errors</div>
+            <div class="metric-title">SYNTAX ERRORS</div>
             <div class="metric-value text-red" id="val-syntax-errors">0</div>
-            <div class="metric-sub">Requires developer fix</div>
+            <div class="metric-sub">Failed AST parsing</div>
           </div>
           <div class="metric-card">
-            <div class="metric-title">Leaks Detected</div>
+            <div class="metric-title">BUGS / ISSUES</div>
+            <div class="metric-value text-purple" id="val-issues">0</div>
+            <div class="metric-sub">Total security issues</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">LEAKS DETECTED</div>
             <div class="metric-value text-amber" id="val-leaks">0</div>
             <div class="metric-sub">Unclosed resources</div>
           </div>
         </section>
 
-        <!-- Scan Controls Panel with "Scan Python Project" CTA -->
-        <section class="panel scan-panel">
-          <div class="panel-header">
-            <div>
-              <h2>Python Analysis Controls</h2>
-              <p class="panel-subtitle">Select target Python sources and initiate static AST analysis</p>
-            </div>
-            <div class="action-buttons">
-              <div class="target-selector-wrapper">
-                <label for="scan-target-select" class="visually-hidden">Scan Target</label>
-                <select id="scan-target-select" class="scan-target-select" title="Choose Python target to scan">
-                  <option value="examples" selected>📁 Examples Suite (examples/)</option>
-                  <option value="python">📁 Entire Test Suite (python/)</option>
-                  <option value="python/safe">🛡️ Safe Suite (python/safe/)</option>
-                  <option value="python/leaks">⚠️ Leaks Suite (python/leaks/)</option>
-                  <option value="python/syntax">❌ Syntax Suite (python/syntax/)</option>
-                  <option value="python/safe/finally_close.py">🛡️ Finally Safe (python/safe/finally_close.py)</option>
-                  <option value="python/safe/exception_finally.py">🛡️ Exception + Finally Safe (python/safe/exception_finally.py)</option>
-                  <option value="python/leaks/exception_leak.py">⚠️ Exception-Return Leak (python/leaks/exception_leak.py)</option>
-                  <option value="python/leaks/raise_leak.py">⚠️ Raise Leak (python/leaks/raise_leak.py)</option>
-                  <option value="python/safe/with_file.py">🛡️ Safe Context Manager (python/safe/with_file.py)</option>
-                  <option value="python/safe/explicit_close.py">🛡️ Safe Explicit Close (python/safe/explicit_close.py)</option>
-                  <option value="python/leaks/early_return.py">⚠️ Early-Return Leak (python/leaks/early_return.py)</option>
-                  <option value="python/leaks/file_no_close.py">⚠️ Unclosed Return Leak (python/leaks/file_no_close.py)</option>
-                  <option value="python/leaks/sqlite_leak.py">⚠️ SQLite Leak (python/leaks/sqlite_leak.py)</option>
-                  <option value="python/safe/sqlite_safe.py">🛡️ SQLite Safe (python/safe/sqlite_safe.py)</option>
-                </select>
-              </div>
-              <button class="btn btn-scan" id="btn-scan">
-                <span class="btn-icon">🔍</span>
-                <span id="btn-scan-text">Scan Python Project</span>
-              </button>
-              <input type="file" id="input-upload-file" accept=".py" style="display:none;">
-              <input type="file" id="input-upload-folder" webkitdirectory directory multiple style="display:none;">
-              <button class="btn btn-upload" id="btn-upload-file" title="Upload a single Python file">
-                <span class="btn-icon">📄</span>
-                <span>Upload Python File</span>
-              </button>
-              <button class="btn btn-upload" id="btn-upload-folder" title="Upload a Python project folder">
-                <span class="btn-icon">📂</span>
-                <span>Upload Python Folder</span>
-              </button>
-              <button class="btn btn-secondary" id="btn-clear" title="Reset dashboard to unscanned state">Reset</button>
-            </div>
+        <!-- SEVERITY COUNTERS STRIP -->
+        <section class="severity-strip-card" aria-label="Severity Breakdown">
+          <div class="severity-item sev-critical">
+            <span class="sev-dot">🔴</span>
+            <span class="sev-name">Critical</span>
+            <strong class="sev-count" id="sev-val-critical">0</strong>
           </div>
-          <div class="dropzone" id="dropzone" tabindex="0">
-            <p>Drag & drop Python files (<code>.py</code>) or folders here, drop a <code>leakguard.json</code> report, or click <strong>Scan Python Project</strong> / <strong>Upload</strong>.</p>
+          <div class="severity-item sev-high">
+            <span class="sev-dot">🟠</span>
+            <span class="sev-name">High</span>
+            <strong class="sev-count" id="sev-val-high">0</strong>
+          </div>
+          <div class="severity-item sev-medium">
+            <span class="sev-dot">🟡</span>
+            <span class="sev-name">Medium</span>
+            <strong class="sev-count" id="sev-val-medium">0</strong>
+          </div>
+          <div class="severity-item sev-low">
+            <span class="sev-dot">🔵</span>
+            <span class="sev-name">Low</span>
+            <strong class="sev-count" id="sev-val-low">0</strong>
           </div>
         </section>
 
@@ -154,24 +316,93 @@
           <div class="syntax-list" id="syntax-list"></div>
         </section>
 
-        <!-- Actionable Resource Leak Findings -->
+        <!-- ACTIONABLE FINDINGS & REMEDIATION SECTION -->
         <section class="panel">
           <div class="panel-header">
             <div class="section-title-wrap">
-              <h2>Resource Leak Findings</h2>
-              <p class="panel-subtitle">Actionable lifecycle inspection across all parsed AST control-flow paths</p>
+              <h2>Security Findings & Automated Fixes</h2>
+              <p class="panel-subtitle">Detected resource leaks with AST-aware fix generation, before/after diffs, and verification</p>
             </div>
             <span class="badge" id="findings-count">0 findings</span>
           </div>
 
           <div id="findings-container" class="findings-container">
             <div class="empty-state" id="findings-empty-state">
-              ○ No analysis performed yet. Click <strong>Scan Python Project</strong> above to begin.
+              ○ No analysis performed yet. Click <strong>Scan Project</strong> above to begin.
             </div>
           </div>
         </section>
 
-        <!-- Detailed Parsed Files Inspection Table -->
+        <!-- VERIFICATION SUMMARY & GITHUB COMMIT SECTION -->
+        <section class="panel commit-workflow-panel" id="commit-workflow-panel" style="display: none;">
+          <div class="panel-header">
+            <div class="section-title-wrap">
+              <h2>Fix Verification & Git Workflow</h2>
+              <p class="panel-subtitle">Review verified fixes, create dedicated branch, commit changes, and submit a Pull Request</p>
+            </div>
+            <span class="badge badge-clean" id="verify-status-badge">0 Verified Fixes</span>
+          </div>
+
+          <div class="commit-grid">
+            <!-- Left: Fix Summary Stats -->
+            <div class="commit-summary-box">
+              <h3 class="box-subheading">FIX SUMMARY</h3>
+              <div class="summary-stats-list">
+                <div class="summary-stat-row">
+                  <span>Issues Detected:</span>
+                  <strong id="stat-issues-detected">0</strong>
+                </div>
+                <div class="summary-stat-row">
+                  <span>Automatically Fixed:</span>
+                  <strong class="text-green" id="stat-auto-fixed">0</strong>
+                </div>
+                <div class="summary-stat-row">
+                  <span>Manual Review Required:</span>
+                  <strong class="text-amber" id="stat-manual-review">0</strong>
+                </div>
+                <div class="summary-stat-row">
+                  <span>Files Changed:</span>
+                  <span id="stat-files-changed" class="code-pill">None</span>
+                </div>
+                <div class="summary-stat-row">
+                  <span>Diff Changes:</span>
+                  <span><span class="text-green" id="stat-lines-added">+0</span> / <span class="text-red" id="stat-lines-removed">-0</span></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Git Branch & PR Actions -->
+            <div class="commit-actions-box">
+              <h3 class="box-subheading">GIT / GITHUB INTEGRATION</h3>
+
+              <div class="form-group">
+                <label for="input-branch-name">Dedicated Fix Branch:</label>
+                <input type="text" id="input-branch-name" class="text-input" value="leakguard/fix-resource-leaks">
+                <span class="form-hint">Safety rule: Never commits directly to main/master.</span>
+              </div>
+
+              <div class="form-group">
+                <label for="input-commit-msg">Commit Message:</label>
+                <input type="text" id="input-commit-msg" class="text-input" value="fix: resolve Python resource leaks">
+              </div>
+
+              <div class="commit-buttons-row">
+                <button class="btn btn-commit" id="btn-commit-changes" disabled>
+                  <span class="btn-icon">🚀</span>
+                  <span>Commit Changes</span>
+                </button>
+                <button class="btn btn-pr" id="btn-create-pr" disabled>
+                  <span class="btn-icon">🐙</span>
+                  <span>Create Pull Request</span>
+                </button>
+              </div>
+
+              <div id="git-action-result" class="git-result-box" style="display: none;"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Detailed Parsed Files Inventory Table -->
         <section class="panel">
           <div class="panel-header" id="toggle-files-table">
             <div class="section-title-wrap">
@@ -192,7 +423,7 @@
               </thead>
               <tbody id="results-tbody">
                 <tr>
-                  <td colspan="4" class="empty-state">No analysis report loaded. Click "Scan Python Project" above.</td>
+                  <td colspan="4" class="empty-state">No analysis report loaded. Click "Scan Project" above.</td>
                 </tr>
               </tbody>
             </table>
@@ -204,261 +435,632 @@
       <!-- ADMIN / PRODUCT OWNER VIEW (Portfolio health & history)      -->
       <!-- ============================================================ -->
       <div id="view-admin" class="view-panel" style="display: none;">
-        <!-- Admin Summary Cards -->
-        <section class="admin-summary-grid" aria-label="Admin Summary Metrics">
-          <div class="metric-card">
-            <div class="metric-title">Monitored Projects</div>
-            <div class="metric-value text-blue" id="admin-val-projects">0</div>
-            <div class="metric-sub">Active codebases</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-title">Total Scans Executed</div>
-            <div class="metric-value" id="admin-val-scans">0</div>
-            <div class="metric-sub">Across all repositories</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-title">Open Leaks</div>
-            <div class="metric-value text-amber" id="admin-val-open-leaks">0</div>
-            <div class="metric-sub">Requiring remediation</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-title">High Severity</div>
-            <div class="metric-value text-red" id="admin-val-high-severity">0</div>
-            <div class="metric-sub">Critical security risk</div>
-          </div>
-          <div class="metric-card">
-            <div class="metric-title">CI Blocked Status</div>
-            <div class="metric-value text-red" id="admin-val-ci-blocked">0</div>
-            <div class="metric-sub">Projects failing gates</div>
-          </div>
-        </section>
+        <!-- Admin Dashboard Sub-Navigation Tabs Bar -->
+        <nav class="admin-nav-tabs-bar" role="tablist" aria-label="Admin Dashboard Views">
+          <button class="admin-tab-btn active" id="admin-tab-overview" data-tab="overview" role="tab" aria-selected="true" aria-controls="admin-pane-overview">
+            <span class="admin-tab-icon">📊</span> Overview
+          </button>
+          <button class="admin-tab-btn" id="admin-tab-repositories" data-tab="repositories" role="tab" aria-selected="false" aria-controls="admin-pane-repositories">
+            <span class="admin-tab-icon">📁</span> Repositories
+          </button>
+          <button class="admin-tab-btn" id="admin-tab-risk" data-tab="risk" role="tab" aria-selected="false" aria-controls="admin-pane-risk">
+            <span class="admin-tab-icon">⚡</span> Risk Ranking
+          </button>
+          <button class="admin-tab-btn" id="admin-tab-analytics" data-tab="analytics" role="tab" aria-selected="false" aria-controls="admin-pane-analytics">
+            <span class="admin-tab-icon">📈</span> Analytics
+          </button>
+          <button class="admin-tab-btn" id="admin-tab-history" data-tab="history" role="tab" aria-selected="false" aria-controls="admin-pane-history">
+            <span class="admin-tab-icon">⏱️</span> Scan History
+          </button>
+        </nav>
 
-        <!-- Security Policy & Gate Configuration Overview -->
-        <section class="panel policy-summary-panel">
-          <div class="panel-header">
-            <div class="section-title-wrap">
-              <h2>Active Security Gate Policy</h2>
-              <p class="panel-subtitle">Differential baseline gating and severity thresholds enforced during CI and developer scans</p>
+        <!-- ============================================================ -->
+        <!-- TAB 1: OVERVIEW                                              -->
+        <!-- ============================================================ -->
+        <div id="admin-pane-overview" class="admin-tab-pane" role="tabpanel" aria-labelledby="admin-tab-overview" style="display: flex;">
+          <!-- Admin Summary Cards -->
+          <section class="admin-summary-grid" aria-label="Admin Summary Metrics">
+            <div class="metric-card">
+              <div class="metric-title">Monitored Projects</div>
+              <div class="metric-value text-blue" id="admin-val-projects">0</div>
+              <div class="metric-sub">Active codebases</div>
             </div>
-            <span class="badge badge-score-healthy">Policy: Standard (HIGH)</span>
-          </div>
-          <div class="policy-grid">
-            <div class="policy-item block">
-              <div class="policy-badge-wrap"><span class="badge badge-severity-high">HIGH / CRITICAL</span></div>
-              <div class="policy-detail"><strong>Blocks CI (Exit 1)</strong>: Definite unclosed file or database descriptors on any reachable path.</div>
+            <div class="metric-card">
+              <div class="metric-title">Total Scans Executed</div>
+              <div class="metric-value" id="admin-val-scans">0</div>
+              <div class="metric-sub">Across all repositories</div>
             </div>
-            <div class="policy-item warn">
-              <div class="policy-badge-wrap"><span class="badge badge-severity-medium">MEDIUM / LOW</span></div>
-              <div class="policy-detail"><strong>Warning (Exit 0)</strong>: Advisory lifecycle notices; surfaces in PR and CLI summaries without failing gates.</div>
+            <div class="metric-card">
+              <div class="metric-title">Open Leaks</div>
+              <div class="metric-value text-amber" id="admin-val-open-leaks">0</div>
+              <div class="metric-sub">Requiring remediation</div>
             </div>
-            <div class="policy-item unknown">
-              <div class="policy-badge-wrap"><span class="badge badge-classification-unknown">UNKNOWN</span></div>
-              <div class="policy-detail"><strong>Advisory by Default (Exit 0)</strong>: Ownership escaped local scope; blocked only when <code>--block-unknown</code> is enabled.</div>
+            <div class="metric-card">
+              <div class="metric-title">High Severity</div>
+              <div class="metric-value text-red" id="admin-val-high-severity">0</div>
+              <div class="metric-sub">Critical security risk</div>
             </div>
-            <div class="policy-item baseline">
-              <div class="policy-badge-wrap"><span class="badge badge-baseline-tolerated">BASELINE</span></div>
-              <div class="policy-detail"><strong>Tolerated (Exit 0)</strong>: Pre-existing legacy leaks matching baseline fingerprints are tolerated; prevents PR disruption.</div>
+            <div class="metric-card">
+              <div class="metric-title">CI Blocked Status</div>
+              <div class="metric-value text-red" id="admin-val-ci-blocked">0</div>
+              <div class="metric-sub">Projects failing gates</div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- Project Health Portfolio Table -->
-        <section class="panel">
-          <div class="panel-header">
-            <div class="section-title-wrap">
-              <h2>Project Security Health Portfolio</h2>
-              <p class="panel-subtitle">Portfolio-level resource leak posture and CI gate statuses across monitored repositories</p>
-            </div>
-            <span class="badge" id="admin-projects-count">0 projects</span>
-          </div>
-          <div class="table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Repository</th>
-                  <th>Branch</th>
-                  <th>Source</th>
-                  <th>Last Scan</th>
-                  <th>Open Leaks</th>
-                  <th>CI Status</th>
-                  <th>Health Score</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="admin-projects-tbody">
-                <tr>
-                  <td colspan="9" class="empty-state">No scan history available yet. Run a scan in Developer view to initialize.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <!-- Project Detail Drilldown View -->
-        <section class="panel project-detail-panel" id="admin-project-detail" style="display: none;">
-          <div class="panel-header">
-            <div class="section-title-wrap">
-              <div class="detail-header-row">
-                <button class="btn btn-secondary btn-sm" id="btn-close-project-detail">← Back to Overview</button>
-                <h2 id="detail-project-name">Project Details</h2>
+          <!-- Security Policy & Gate Configuration Overview -->
+          <section class="panel policy-summary-panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Active Security Gate Policy</h2>
+                <p class="panel-subtitle">Differential baseline gating and severity thresholds enforced during CI and developer scans</p>
               </div>
-              <p class="panel-subtitle" id="detail-project-sub">Repository and branch info</p>
+              <span class="badge badge-score-healthy">Policy: Standard (HIGH)</span>
             </div>
-            <div class="detail-header-badges">
-              <span class="badge badge-score-healthy" id="detail-project-score-badge">Score: 100 / 100</span>
-              <span class="badge" id="detail-project-health-badge">HEALTHY</span>
+            <div class="policy-grid">
+              <div class="policy-item block">
+                <div class="policy-badge-wrap"><span class="badge badge-severity-high">HIGH / CRITICAL</span></div>
+                <div class="policy-detail"><strong>Blocks CI (Exit 1)</strong>: Definite unclosed file or database descriptors on any reachable path.</div>
+              </div>
+              <div class="policy-item warn">
+                <div class="policy-badge-wrap"><span class="badge badge-severity-medium">MEDIUM</span></div>
+                <div class="policy-detail"><strong>Non-blocking Warning</strong>: Unclosed descriptors in auxiliary or non-guaranteed paths.</div>
+              </div>
+              <div class="policy-item info">
+                <div class="policy-badge-wrap"><span class="badge badge-classification-unknown">BASELINE</span></div>
+                <div class="policy-detail"><strong>Differential Baseline</strong>: Pre-existing grandfathered leaks are tolerated; new leaks fail the build.</div>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <!-- CI / PR Intelligence Context Card -->
-          <div class="ci-context-card" id="detail-ci-context" style="display: none;">
-            <div class="ci-context-title">
-              <span class="ci-icon">⚡</span> <strong>CI / PR Execution Intelligence</strong>
+          <!-- Overview Monitored Projects Summary Table -->
+          <section class="panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Portfolio Health Overview</h2>
+                <p class="panel-subtitle">Summary of active monitored projects and security posture</p>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-goto-repositories-tab">View All Repositories &rarr;</button>
             </div>
-            <div class="ci-context-grid">
-              <div class="ci-item"><span class="ci-label">Execution Source</span> <span id="ci-source" class="scan-type-tag ci">CI</span></div>
-              <div class="ci-item"><span class="ci-label">Repository</span> <code id="ci-repo">-</code></div>
-              <div class="ci-item"><span class="ci-label">Target Branch</span> <span id="ci-branch" class="badge">-</span></div>
-              <div class="ci-item"><span class="ci-label">Commit SHA</span> <code id="ci-commit">-</code></div>
-              <div class="ci-item"><span class="ci-label">Pull Request</span> <span id="ci-pr" class="badge">-</span></div>
-              <div class="ci-item"><span class="ci-label">Workflow Run</span> <code id="ci-run">-</code></div>
-            </div>
-          </div>
-
-          <div class="detail-grid">
-            <div class="detail-stat">
-              <div class="stat-label">Files Scanned</div>
-              <div class="stat-value" id="detail-files-scanned">0</div>
-            </div>
-            <div class="detail-stat">
-              <div class="stat-label">Clean Files</div>
-              <div class="stat-value text-green" id="detail-clean-files">0</div>
-            </div>
-            <div class="detail-stat">
-              <div class="stat-label">Syntax Errors</div>
-              <div class="stat-value text-red" id="detail-syntax-errors">0</div>
-            </div>
-            <div class="detail-stat">
-              <div class="stat-label">Total Leaks</div>
-              <div class="stat-value text-amber" id="detail-leaks">0</div>
-            </div>
-            <div class="detail-stat">
-              <div class="stat-label">New Leaks (Blocking)</div>
-              <div class="stat-value text-red" id="detail-new-leaks">0</div>
-            </div>
-            <div class="detail-stat">
-              <div class="stat-label">Baseline (Tolerated)</div>
-              <div class="stat-value" id="detail-baseline-leaks" style="color: #c084fc;">0</div>
-            </div>
-          </div>
-
-          <!-- Open Findings for Selected Project -->
-          <div class="sub-panel">
-            <h3>Open Vulnerabilities & Resource Leaks</h3>
-            <div id="detail-findings-container" class="findings-container">
-              <div class="empty-state">No open leaks detected in latest scan.</div>
-            </div>
-          </div>
-
-          <!-- Chronological Scan History for Selected Project -->
-          <div class="sub-panel">
-            <h3>Scan History & CI Gate Results</h3>
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Scan ID</th>
-                    <th>Source</th>
-                    <th>Timestamp</th>
-                    <th>Target</th>
-                    <th>Files Scanned</th>
-                    <th>Clean Files</th>
-                    <th>Leaks (New / Base)</th>
-                    <th>Duration</th>
-                    <th>Score</th>
-                    <th>CI Status</th>
+                    <th>Status</th>
+                    <th>Project Name</th>
+                    <th>Repository / Target</th>
+                    <th>Security Score</th>
+                    <th>Open Leaks</th>
+                    <th>Last Scan</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
-                <tbody id="detail-history-tbody">
+                <tbody id="admin-projects-tbody">
                   <tr>
-                    <td colspan="10" class="empty-state">No historical scans recorded.</td>
+                    <td colspan="7" class="empty-state">Loading projects...</td>
                   </tr>
                 </tbody>
               </table>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
 
-        <!-- Recent Scans Stream Across Portfolio -->
-        <section class="panel">
-          <div class="panel-header">
-            <div class="section-title-wrap">
-              <h2>Recent Scans Activity Stream</h2>
-              <p class="panel-subtitle">Automated history of live developer and CI/CD executions across all projects</p>
+        <!-- ============================================================ -->
+        <!-- TAB 2: REPOSITORIES                                          -->
+        <!-- ============================================================ -->
+        <div id="admin-pane-repositories" class="admin-tab-pane" role="tabpanel" aria-labelledby="admin-tab-repositories" style="display: none;">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Monitored Codebases</h2>
+                <p class="panel-subtitle">Manage repositories, review branch security status, and inspect health scores</p>
+              </div>
+              <span class="badge" id="admin-projects-count">0 projects</span>
             </div>
-            <span class="badge" id="admin-scans-count">0 scans</span>
-          </div>
-          <div class="table-container">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>Project</th>
-                  <th>Scan ID</th>
-                  <th>Type</th>
-                  <th>Timestamp</th>
-                  <th>Target Path</th>
-                  <th>Files Scanned</th>
-                  <th>Leaks Detected</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="admin-scans-tbody">
-                <tr>
-                  <td colspan="8" class="empty-state">No scan history available yet.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Project / Repository</th>
+                    <th>Branch</th>
+                    <th>Source</th>
+                    <th>Health Score</th>
+                    <th>Open Leaks</th>
+                    <th>Last Scan</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-repositories-tbody">
+                  <tr>
+                    <td colspan="8" class="empty-state">Loading repositories...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
 
-        <!-- Security Analytics & Trends Preparation -->
-        <section class="panel">
-          <div class="panel-header">
-            <div class="section-title-wrap">
-              <h2>Security Posture & Leak Analytics</h2>
-              <p class="panel-subtitle">Resource lifecycle breakdowns and historical security metrics</p>
+          <!-- Detailed Project Slide-out / Drill-down Panel -->
+          <section class="panel" id="admin-project-detail" style="display: none;">
+            <div class="panel-header">
+              <div>
+                <div class="detail-header-badges">
+                  <span class="badge" id="detail-project-health-badge">HEALTHY</span>
+                  <span class="badge badge-score-healthy" id="detail-project-score-badge">Score: 100</span>
+                </div>
+                <h2 id="detail-project-name">Project Details</h2>
+                <p class="panel-subtitle" id="detail-project-sub">Target inspection</p>
+              </div>
+              <button class="btn btn-secondary" id="btn-close-project-detail">Close</button>
+            </div>
+
+            <div class="project-detail-body">
+              <div class="ci-context-strip" id="detail-ci-context" style="display: none;">
+                <span class="ci-item"><strong>CI Trigger:</strong> <span id="ci-source">-</span></span>
+                <span class="ci-item"><strong>Repo:</strong> <span id="ci-repo">-</span></span>
+                <span class="ci-item"><strong>Branch:</strong> <span id="ci-branch">-</span></span>
+                <span class="ci-item"><strong>Commit:</strong> <span id="ci-commit">-</span></span>
+                <span class="ci-item" id="ci-pr-wrap"><strong>PR:</strong> <span id="ci-pr">-</span></span>
+                <span class="ci-item"><strong>Workflow Run:</strong> <span id="ci-run">-</span></span>
+              </div>
+
+              <div class="metrics-grid">
+                <div class="metric-card">
+                  <div class="metric-title">Files Scanned</div>
+                  <div class="metric-value" id="detail-files-scanned">0</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-title">Clean Files</div>
+                  <div class="metric-value text-green" id="detail-clean-files">0</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-title">Syntax Errors</div>
+                  <div class="metric-value text-red" id="detail-syntax-errors">0</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-title">Total Leaks</div>
+                  <div class="metric-value text-amber" id="detail-leaks">0</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-title">New Leaks</div>
+                  <div class="metric-value text-red" id="detail-new-leaks">0</div>
+                </div>
+                <div class="metric-card">
+                  <div class="metric-title">Baseline Leaks</div>
+                  <div class="metric-value text-blue" id="detail-baseline-leaks">0</div>
+                </div>
+              </div>
+
+              <div class="findings-container" id="detail-findings-container"></div>
+
+              <div class="history-section">
+                <h3 class="history-title">Scan History</h3>
+                <div class="table-container">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Scan Time</th>
+                        <th>Type</th>
+                        <th>Branch</th>
+                        <th>Leaks</th>
+                        <th>Duration</th>
+                      </tr>
+                    </thead>
+                    <tbody id="detail-history-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB 3: RISK RANKING                                          -->
+        <!-- ============================================================ -->
+        <div id="admin-pane-risk" class="admin-tab-pane" role="tabpanel" aria-labelledby="admin-tab-risk" style="display: none;">
+          <section class="panel risk-ranking-panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Repository Risk Ranking</h2>
+                <p class="panel-subtitle">Compare repositories using resource-leak density</p>
+              </div>
+              <div class="risk-ranking-controls">
+                <select id="risk-project-filter" class="scan-target-select analytics-select">
+                  <option value="all">All Repositories</option>
+                </select>
+                <select id="risk-time-filter" class="scan-target-select analytics-select">
+                  <option value="30" selected>Last 30 Days</option>
+                  <option value="7">Last 7 Days</option>
+                  <option value="90">Last 90 Days</option>
+                  <option value="all">All Time</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" id="btn-export-risk-ranking">📥 Export</button>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table" id="admin-risk-table">
+                <thead>
+                  <tr>
+                    <th style="width: 50px;">#</th>
+                    <th>Repository</th>
+                    <th>Leak Density</th>
+                    <th>Trend</th>
+                    <th>Last Scan</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-risk-tbody">
+                  <tr>
+                    <td colspan="6" class="empty-state">Loading risk rankings...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB 4: ANALYTICS                                             -->
+        <!-- ============================================================ -->
+        <div id="admin-pane-analytics" class="admin-tab-pane" role="tabpanel" aria-labelledby="admin-tab-analytics" style="display: none;">
+          <section class="panel admin-analytics-panel" id="admin-analytics-section">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Analytics Interface</h2>
+                <p class="panel-subtitle">Historical resource leak trend and vulnerability breakdown across monitored codebases</p>
+              </div>
+              <!-- Time & Project Filters -->
+              <div class="analytics-filter-bar">
+                <div class="filter-group">
+                  <label for="analytics-project-filter" class="filter-label">Project:</label>
+                  <select id="analytics-project-filter" class="scan-target-select analytics-select">
+                    <option value="all">All Repositories</option>
+                    <!-- Populated dynamically -->
+                  </select>
+                </div>
+                <div class="filter-group">
+                  <label for="analytics-time-filter" class="filter-label">Time Period:</label>
+                  <select id="analytics-time-filter" class="scan-target-select analytics-select">
+                    <option value="7">Last 7 Days</option>
+                    <option value="30" selected>Last 30 Days</option>
+                    <option value="90">Last 90 Days</option>
+                    <option value="all">All Time</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Supporting Indicators Bar -->
+            <div class="analytics-meta-strip">
+              <span class="analytics-meta-badge text-amber" id="analytics-meta-total-leaks">Confirmed Leaks: 0</span>
+              <span class="analytics-meta-badge badge-neutral" id="analytics-meta-unknown">Unknown Ownership: 0 (Excluded)</span>
+              <span class="analytics-meta-badge badge-neutral" id="analytics-meta-period">Period: Last 30 Days</span>
+            </div>
+
+            <!-- Empty State -->
+            <div id="analytics-empty-message" class="empty-state" style="display: none;">
+              No historical scan data for this period.
+            </div>
+
+            <!-- Analytics Content Grid: 2 Columns -->
+            <div class="analytics-two-col-grid" id="analytics-two-col-container">
+              <!-- Card 1: Resource Leak Trend -->
+              <div class="analytics-box">
+                <div class="analytics-box-header">
+                  <div>
+                    <h3 class="analytics-box-title">Resource Leak Trend</h3>
+                    <p class="analytics-box-subtitle">Confirmed resource leaks across historical scans</p>
+                  </div>
+                  <span class="badge badge-clean" id="analytics-trend-badge">Scan Trend</span>
+                </div>
+                <div class="trend-chart-wrapper" id="trend-chart-wrapper">
+                  <svg id="trend-svg-chart" class="trend-svg" viewBox="0 0 540 220">
+                    <!-- Rendered dynamically by app.js -->
+                  </svg>
+                  <div id="trend-chart-tooltip" class="trend-tooltip" style="display: none;"></div>
+                </div>
+                <div class="trend-chart-legend">
+                  <span class="legend-item"><span class="legend-dot leak-dot"></span> Confirmed Leaks (Y-axis)</span>
+                  <span class="legend-item"><span class="legend-line"></span> Historical Scans (X-axis)</span>
+                </div>
+              </div>
+
+              <!-- Card 2: Resource Types -->
+              <div class="analytics-box">
+                <div class="analytics-box-header">
+                  <div>
+                    <h3 class="analytics-box-title">Resource Types</h3>
+                    <p class="analytics-box-subtitle">Confirmed leak findings by detected resource classification</p>
+                  </div>
+                  <span class="badge" id="analytics-resource-count-badge">0 Types</span>
+                </div>
+                <div class="resource-types-bars-container" id="resource-types-bars">
+                  <!-- Dynamically populated horizontal bars -->
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Card 3: Leak Prevention Intelligence -->
+          <section class="panel" id="analytics-intelligence-panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Leak Prevention Intelligence</h2>
+                <p class="panel-subtitle">Aggregate resource lifecycle vulnerabilities and hotspot distribution</p>
+              </div>
+            </div>
+            <div id="analytics-empty-state" class="empty-state">Not enough scan history for intelligence analysis.</div>
+            <div id="analytics-content" class="analytics-grid" style="display: none;">
+              <div class="analytics-card">
+                <h3 class="analytics-card-title">Top Leaked Resources</h3>
+                <div class="analytics-list" id="analytics-resource-list"></div>
+              </div>
+              <div class="analytics-card">
+                <h3 class="analytics-card-title">Vulnerable Codebases</h3>
+                <div class="analytics-list" id="analytics-project-list"></div>
+              </div>
+              <div class="analytics-card">
+                <h3 class="analytics-card-title">CI Security Gate Impact</h3>
+                <div class="analytics-ci-summary" id="analytics-ci-box"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB 5: SCAN HISTORY                                          -->
+        <!-- ============================================================ -->
+        <div id="admin-pane-history" class="admin-tab-pane" role="tabpanel" aria-labelledby="admin-tab-history" style="display: none;">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="section-title-wrap">
+                <h2>Recent Scans Audit Log</h2>
+                <p class="panel-subtitle">Chronological record of developer and automated CI static analysis runs</p>
+              </div>
+              <div class="risk-ranking-controls">
+                <select id="scans-status-filter" class="scan-target-select analytics-select">
+                  <option value="all">All Statuses</option>
+                  <option value="PASS">Passed Scans</option>
+                  <option value="FAILED">Failed Scans</option>
+                </select>
+                <button class="btn btn-secondary btn-sm" id="btn-export-scans-csv">📥 Export CSV</button>
+                <span class="badge" id="admin-scans-count">0 scans</span>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Timestamp</th>
+                    <th>Project / Target</th>
+                    <th>Scan Type</th>
+                    <th>Branch / Commit</th>
+                    <th>Files</th>
+                    <th>Leaks</th>
+                    <th>Duration</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-scans-tbody">
+                  <tr>
+                    <td colspan="8" class="empty-state">Loading scan log...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- ============================================================ -->
+    <!-- MODALS: CODE VIEW, DIFF REVIEW, GITHUB CONNECT               -->
+    <!-- ============================================================ -->
+
+    <!-- Modal 1: Code View Modal -->
+    <div class="modal-backdrop" id="modal-code-view" style="display: none;">
+      <div class="modal-dialog modal-large">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <span class="badge badge-severity-high" id="code-modal-badge">HIGH</span>
+            <h3 class="modal-title" id="code-modal-title">Code View</h3>
+            <span class="modal-subtitle" id="code-modal-subtitle">file.py : line 42</span>
+          </div>
+          <button class="modal-close" id="btn-close-code-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="code-explain-callout" id="code-modal-callout">
+            <strong>Problem:</strong> File resource may remain open if an exception occurs.
+          </div>
+          <div class="code-viewer-wrapper">
+            <div class="code-viewer-container" id="code-modal-lines">
+              <!-- Rendered code lines -->
             </div>
           </div>
-          <div id="analytics-container" class="analytics-container">
-            <div class="empty-state" id="analytics-empty-state">
-              No scan history available yet.
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-code-modal">Close</button>
+          <button class="btn btn-generate-fix" id="btn-modal-generate-fix">
+            <span class="btn-icon">⚡</span>
+            <span>Generate Fix</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 2: Before / After Diff Reviewer Modal -->
+    <div class="modal-backdrop" id="modal-diff-view" style="display: none;">
+      <div class="modal-dialog modal-xlarge">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <span class="badge badge-score-healthy">⚡ PROPOSED AST FIX</span>
+            <h3 class="modal-title" id="diff-modal-title">Review Remediation Patch</h3>
+            <span class="modal-subtitle" id="diff-modal-subtitle">file.py</span>
+          </div>
+          <button class="modal-close" id="btn-close-diff-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="diff-header-stats">
+            <span class="diff-stat-item"><strong class="text-green" id="diff-stat-additions">+0</strong> lines added</span>
+            <span class="diff-stat-item"><strong class="text-red" id="diff-stat-deletions">-0</strong> lines removed</span>
+            <span class="diff-stat-rule" id="diff-stat-rule">Rule: LEAK001 (File Resource Leak)</span>
+          </div>
+
+          <!-- Diff Viewer -->
+          <div class="diff-viewer-grid">
+            <div class="diff-side">
+              <div class="diff-side-header">BEFORE (ORIGINAL)</div>
+              <pre class="diff-code-box" id="diff-before-box"><code></code></pre>
             </div>
-            <div id="analytics-content" class="analytics-grid-content" style="display: none;">
-              <div class="analytics-row">
-                <div class="analytics-card">
-                  <h4>Leaks by Resource Type</h4>
-                  <ul class="analytics-list" id="analytics-resource-list"></ul>
+            <div class="diff-side">
+              <div class="diff-side-header">AFTER (SAFE REMEDIATION)</div>
+              <pre class="diff-code-box" id="diff-after-box"><code></code></pre>
+            </div>
+          </div>
+
+          <!-- Live verification status area -->
+          <div class="verify-progress-box" id="diff-verify-progress" style="display: none;">
+            <div class="spinner"></div>
+            <span id="diff-verify-text">Applying patch & re-scanning workspace to verify resolution...</span>
+          </div>
+          <div class="verify-result-box" id="diff-verify-result" style="display: none;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-reject-diff">
+            <span>❌ Reject Fix</span>
+          </button>
+          <button class="btn btn-apply-fix" id="btn-apply-diff">
+            <span class="btn-icon">✅</span>
+            <span id="btn-apply-diff-text">Apply Fix & Verify</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 3: Connect GitHub Repository Modal (OAuth & Live Repo Picker) -->
+    <div class="modal-backdrop" id="modal-github-connect" style="display: none;">
+      <div class="modal-dialog modal-large">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <span class="gh-icon-lg">🐙</span>
+            <h3 class="modal-title">Connect GitHub Repository</h3>
+          </div>
+          <button class="modal-close" id="btn-close-github-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+
+          <!-- State A: Unauthenticated OAuth Prompt -->
+          <div id="gh-view-unauthenticated" class="gh-auth-card">
+            <div class="gh-auth-header">
+              <div class="gh-auth-icon">🐙</div>
+              <h4>Authenticate with GitHub</h4>
+              <p class="gh-auth-desc">Connect your GitHub account via OAuth 2.0 or a Personal Access Token to browse your repositories, analyze Python codebases, and create automated remediation pull requests.</p>
+            </div>
+            
+            <div class="gh-auth-action-row">
+              <button class="btn btn-github btn-lg" id="btn-gh-authorize">
+                <span class="btn-icon">🐙</span>
+                <span>Authorize with GitHub OAuth</span>
+              </button>
+            </div>
+
+            <!-- Alternative Quick Connect / PAT Option -->
+            <div class="gh-divider-row" style="display: flex; align-items: center; margin: 1.25rem 0 0.75rem; text-align: center;">
+              <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+              <span style="padding: 0 0.75rem; font-size: 0.75rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">OR QUICK CONNECT (PAT / PUBLIC REPO)</span>
+              <div style="flex: 1; height: 1px; background: var(--border-color);"></div>
+            </div>
+
+            <div class="gh-quick-connect-form" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+              <label for="gh-input-quick-token" style="font-size: 0.8125rem; font-weight: 600; color: var(--text-primary); display: block; margin-bottom: 0.4rem;">
+                GitHub Token or Public Repository:
+              </label>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <input type="password" id="gh-input-quick-token" class="text-input" placeholder="🔑 Personal Access Token (ghp_...) or owner/repo (e.g. octocat/Hello-World)" style="flex: 1; min-width: 260px;">
+                <button class="btn btn-primary" id="btn-gh-quick-token" style="white-space: nowrap;">
+                  <span class="btn-icon">⚡</span>
+                  <span>Connect</span>
+                </button>
+              </div>
+              <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.4;">
+                💡 <em>No OAuth App needed! Enter a token to access your account, or enter a public repository name to analyze it directly.</em>
+              </p>
+            </div>
+
+            <div class="gh-security-callout">
+              <div class="callout-icon">🔒</div>
+              <div class="callout-text">
+                <strong>Zero-Credential Storage:</strong> Credentials and tokens remain securely scoped in server memory and are never stored in your browser or localStorage.
+              </div>
+            </div>
+
+            <!-- Dev fallback / setup guide -->
+            <div class="gh-dev-mode-box" id="gh-dev-mode-box" style="display: none;">
+              <span class="gh-dev-badge">OAuth Setup Status</span>
+              <p class="gh-dev-text" id="gh-dev-text">GitHub OAuth credentials not set in <code>.env</code>. You can set <code>GITHUB_CLIENT_ID</code> & <code>GITHUB_CLIENT_SECRET</code> or use the Quick Connect token above.</p>
+            </div>
+          </div>
+
+          <!-- State B: Authenticated Repository Browser -->
+          <div id="gh-view-authenticated" style="display: none;">
+            <!-- User Info Bar -->
+            <div class="gh-user-banner">
+              <div class="gh-user-left">
+                <img id="gh-user-avatar" class="gh-user-avatar" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2394a3b8'%3E%3Cpath d='M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z'/%3E%3C/svg%3E" alt="Avatar">
+                <div class="gh-user-info">
+                  <span class="gh-user-name" id="gh-user-name">@octocat</span>
+                  <span class="badge badge-clean">✓ Authenticated</span>
                 </div>
-                <div class="analytics-card">
-                  <h4>Leaks by Project</h4>
-                  <ul class="analytics-list" id="analytics-project-list"></ul>
-                </div>
-                <div class="analytics-card">
-                  <h4>CI Gate Success Rate</h4>
-                  <div class="ci-stats-box" id="analytics-ci-box"></div>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-gh-sign-out">Sign Out</button>
+            </div>
+
+            <!-- Repository Search Bar -->
+            <div class="form-group" style="margin-top: 1rem;">
+              <label for="gh-repo-search-input">Select Repository:</label>
+              <input type="text" id="gh-repo-search-input" class="text-input" placeholder="🔍 Search repositories (e.g. project name)...">
+            </div>
+
+            <!-- Scrollable Repository List -->
+            <div class="gh-repo-list-container" id="gh-repo-list-container">
+              <div class="gh-repo-list" id="gh-repo-list">
+                <!-- Dynamically populated repo items -->
+              </div>
+            </div>
+
+            <!-- Branch Selector & Details (Shown when repo is picked) -->
+            <div class="gh-branch-section" id="gh-branch-section" style="display: none; margin-top: 1rem;">
+              <div class="form-group">
+                <label for="gh-branch-select">Select Branch to Analyze:</label>
+                <div class="gh-branch-selector-row">
+                  <select id="gh-branch-select" class="scan-target-select">
+                    <!-- Populated dynamically -->
+                  </select>
+                  <span class="gh-branch-hint" id="gh-branch-hint">Default branch</span>
                 </div>
               </div>
             </div>
           </div>
-        </section>
-      </div>
-    </main>
 
-    <footer class="footer">
-      <p>LeakGuard Static Analyzer &copy; 2026 &bull; Pure Python AST analysis &bull; Zero code execution</p>
-    </footer>
+          <!-- Status / Error / Download progress messages (Visible across all views) -->
+          <div id="gh-modal-status-box" class="gh-modal-status-box" style="display: none;">
+            <div class="spinner" id="gh-modal-spinner" style="display: none;"></div>
+            <span id="gh-modal-status-text">Connecting repository...</span>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-github-modal">Cancel</button>
+          <button class="btn btn-github" id="btn-save-github-connect" disabled>
+            <span class="btn-icon">⚡</span>
+            <span id="btn-save-github-text">Connect Repository</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
+
   <script src="app.js"></script>
 </body>
 </html>

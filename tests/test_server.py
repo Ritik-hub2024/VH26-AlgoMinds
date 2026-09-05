@@ -11,6 +11,8 @@ class TestServerHandler(unittest.TestCase):
     def setUp(self):
         self.handler = app.Handler.__new__(app.Handler)
         self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO()
+        self.handler.headers = {"Host": "localhost:8000", "Content-Length": "0"}
         self.handler.send_response = MagicMock()
         self.handler.send_header = MagicMock()
         self.handler.end_headers = MagicMock()
@@ -18,6 +20,53 @@ class TestServerHandler(unittest.TestCase):
     def _get_response_data(self):
         output = self.handler.wfile.getvalue().decode("utf-8")
         return json.loads(output)
+
+    def test_github_status_and_auth_endpoints(self):
+        """Verify /api/github/status, /api/github/auth, and /api/github/config return valid JSON contracts."""
+        self.handler.wfile = BytesIO()
+        self.handler._handle_github_status()
+        status_data = self._get_response_data()
+        self.assertIn("authenticated", status_data)
+        self.assertIn("user", status_data)
+
+        self.handler.wfile = BytesIO()
+        self.handler._handle_github_config()
+        config_data = self._get_response_data()
+        self.assertIn("oauth", config_data)
+        self.assertIn("configured", config_data["oauth"])
+        self.assertIn("client_id", config_data["oauth"])
+        self.assertIn("client_secret", config_data["oauth"])
+        self.assertNotIn("ghp_", json.dumps(config_data))
+
+        self.handler.wfile = BytesIO()
+        self.handler._handle_github_auth()
+        auth_data = self._get_response_data()
+        self.assertIn("configured", auth_data)
+
+    def test_github_branches_path_endpoint(self):
+        """Verify path-based branch query returns JSON structure."""
+        self.handler.wfile = BytesIO()
+        self.handler._handle_github_branches_for("octocat", "Hello-World")
+        data = self._get_response_data()
+        self.assertIn("status", data)
+
+    def test_github_disconnect(self):
+        """Verify /api/github/disconnect clears connection state."""
+        self.handler.wfile = BytesIO()
+        self.handler._handle_github_disconnect()
+        data = self._get_response_data()
+        self.assertEqual(data.get("status"), "DISCONNECTED")
+
+    def test_github_connect_missing_fields_validation(self):
+        """Verify connecting to GitHub requires repository parameter."""
+        payload = b'{"repository": ""}'
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO(payload)
+        self.handler.headers = {"Content-Length": str(len(payload))}
+        self.handler._handle_github_connect()
+        self.handler.send_response.assert_called_with(400)
+        data = self._get_response_data()
+        self.assertIn("error", data)
 
     def test_default_target_examples_suite(self):
         """Scanning default target (examples) should detect both the leak and the syntax error."""
@@ -176,6 +225,6 @@ class TestServerHandler(unittest.TestCase):
         self.assertEqual(data2["status"], "FAILED")
         self.assertEqual(data2["leaks_detected"], 16)
 
-
 if __name__ == "__main__":
     unittest.main()
+

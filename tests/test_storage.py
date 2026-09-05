@@ -211,3 +211,130 @@ class TestDatabasePersistence:
         assert len(history) == 2
         assert history[0]["status"] == "PASS"
         assert history[1]["status"] == "FAILED"
+
+    def test_get_analytics_filtering_and_resource_types(self, db: Database):
+        """get_analytics filters by project_id and days, computing leak trend and resource types."""
+        # Project A with file leak and sqlite leak
+        repA = AnalysisReport(target_path="repoA/")
+        repA.files_scanned = 4
+        repA.issues.extend([
+            LeakIssue(
+                rule_id="LEAK001",
+                message="file unclosed",
+                severity=Severity.HIGH,
+                location=SourceLocation(file_path="a.py", line=10, column=0),
+                resource_name="f",
+                resource_type="File",
+            ),
+            LeakIssue(
+                rule_id="LEAK002",
+                message="db unclosed",
+                severity=Severity.MEDIUM,
+                location=SourceLocation(file_path="db.py", line=20, column=0),
+                resource_name="db",
+                resource_type="SQLite Connection",
+            ),
+        ])
+        db.record_scan(repA, project_id="proj-a", target_override="repoA/")
+
+        # Project B with 2 file leaks
+        repB = AnalysisReport(target_path="repoB/")
+        repB.files_scanned = 2
+        repB.issues.extend([
+            LeakIssue(
+                rule_id="LEAK001",
+                message="file 1 unclosed",
+                severity=Severity.HIGH,
+                location=SourceLocation(file_path="b1.py", line=5, column=0),
+                resource_name="f1",
+                resource_type="File",
+            ),
+            LeakIssue(
+                rule_id="LEAK001",
+                message="file 2 unclosed",
+                severity=Severity.HIGH,
+                location=SourceLocation(file_path="b2.py", line=8, column=0),
+                resource_name="f2",
+                resource_type="File",
+            ),
+        ])
+        db.record_scan(repB, project_id="proj-b", target_override="repoB/")
+
+        # 1. Query All Projects
+        analytics_all = db.get_analytics()
+        assert analytics_all["has_data"] is True
+        assert analytics_all["total_confirmed_leaks"] == 4
+        assert len(analytics_all["trend"]) == 2
+        assert len(analytics_all["resource_types"]) == 2
+        # Resource Types: File (3), SQLite Connection (1)
+        res_map = {r["type"]: r["count"] for r in analytics_all["resource_types"]}
+        assert res_map["File"] == 3
+        assert res_map["SQLite Connection"] == 1
+
+        # 2. Query Project A Only
+        analytics_a = db.get_analytics(project_id="proj-a")
+        assert analytics_a["has_data"] is True
+        assert analytics_a["total_confirmed_leaks"] == 2
+        assert len(analytics_a["trend"]) == 1
+        assert analytics_a["trend"][0]["leak_count"] == 2
+        res_map_a = {r["type"]: r["count"] for r in analytics_a["resource_types"]}
+        assert res_map_a["File"] == 1
+        assert res_map_a["SQLite Connection"] == 1
+
+        # 3. Query Project B Only
+        analytics_b = db.get_analytics(project_id="proj-b")
+        assert analytics_b["total_confirmed_leaks"] == 2
+        assert len(analytics_b["trend"]) == 1
+        res_map_b = {r["type"]: r["count"] for r in analytics_b["resource_types"]}
+        assert res_map_b["File"] == 2
+        assert "SQLite Connection" not in res_map_b
+
+    def test_get_analytics_excludes_unknown_and_baseline(self, db: Database):
+        """get_analytics strictly excludes baseline findings and tracks UNKNOWN ownership separately."""
+        rep = AnalysisReport(target_path="app/")
+        rep.files_scanned = 3
+        rep.issues.append(
+            LeakIssue(
+                rule_id="LEAK001",
+                message="real leak",
+                severity=Severity.HIGH,
+                location=SourceLocation(file_path="main.py", line=12, column=0),
+                resource_name="f",
+                resource_type="File",
+            )
+        )
+        scan = db.record_scan(rep, project_id="mixed-proj", target_override="app/")
+
+        # Insert a baseline finding and an UNKNOWN ownership finding manually to test classification filtering
+        with db._connection() as conn:
+            # Baseline finding (should be excluded from confirmed leaks)
+            conn.execute(
+                """
+                INSERT INTO findings (
+                    finding_id, scan_id, file, line, column, resource,
+                    variable, severity, reason, leak_path, recommendation, cleanup_status,
+                    is_baseline, classification, ownership_status, callee_name, transfer_line, scope_limitation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("fnd-baseline", scan.scan_id, "base.py", 1, 0, "File", "b", "HIGH", "old base", "", "", "CLEANUP_MISSING", 1, "LEAK", "INTERNAL", None, None, None)
+            )
+            # UNKNOWN ownership finding (should be tracked under unknown_ownership_count, not in confirmed leaks)
+            conn.execute(
+                """
+                INSERT INTO findings (
+                    finding_id, scan_id, file, line, column, resource,
+                    variable, severity, reason, leak_path, recommendation, cleanup_status,
+                    is_baseline, classification, ownership_status, callee_name, transfer_line, scope_limitation
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("fnd-unknown", scan.scan_id, "unk.py", 5, 0, "Socket", "u", "MEDIUM", "unknown leak", "", "", "CLEANUP_MISSING", 0, "UNKNOWN", "UNKNOWN", None, None, None)
+            )
+
+        analytics = db.get_analytics(project_id="mixed-proj")
+        assert analytics["total_confirmed_leaks"] == 1
+        assert analytics["unknown_ownership_count"] == 1
+        assert len(analytics["resource_types"]) == 1
+        assert analytics["resource_types"][0]["type"] == "File"
+        assert analytics["resource_types"][0]["count"] == 1
+
+

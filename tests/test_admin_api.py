@@ -247,3 +247,30 @@ class TestAdminAPI(unittest.TestCase):
         self.assertEqual(persisted_summary["projects_count"], 2)
         self.assertEqual(persisted_summary["open_leaks"], 16)
 
+    def test_admin_analytics_query_parameters(self):
+        """Analytics endpoint processes project_id and time_range/days query params."""
+        # 1. Scan safe and leaks
+        self.handler._handle_api_scan("target=python/safe")
+        self._reset_wfile()
+        self.handler._handle_api_scan("target=python/leaks")
+        self._reset_wfile()
+
+        # 2. Query analytics with project_id
+        self.handler._handle_admin_analytics("project_id=python-leaks&time_range=30")
+        data = self._get_response_data()
+        self.assertEqual(data["status"], "SUCCESS")
+        self.assertTrue(data["analytics"]["has_data"])
+        self.assertEqual(data["analytics"]["total_confirmed_leaks"], 16)
+        self.assertGreater(len(data["analytics"]["resource_types"]), 0)
+        self.assertEqual(len(data["analytics"]["trend"]), 1)
+
+        # 3. Query analytics with safe project (0 leaks)
+        self._reset_wfile()
+        self.handler._handle_admin_analytics("project_id=python-safe&time_range=7")
+        safe_data = self._get_response_data()
+        self.assertEqual(safe_data["status"], "SUCCESS")
+        self.assertEqual(safe_data["analytics"]["total_confirmed_leaks"], 0)
+        self.assertEqual(len(safe_data["analytics"]["trend"]), 1)
+        self.assertEqual(safe_data["analytics"]["trend"][0]["leak_count"], 0)
+
+
