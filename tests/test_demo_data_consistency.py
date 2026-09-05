@@ -20,7 +20,7 @@ from storage.database import Database
 
 
 def test_data_consistency_layer_by_layer():
-    demo_file = ROOT_DIR / "examples" / "demo" / "demo_leak.py"
+    demo_file = ROOT_DIR / "demo_fixtures" / "demo_leak.py"
     assert demo_file.exists(), f"Missing demo fixture: {demo_file}"
 
     # -------------------------------------------------------------
