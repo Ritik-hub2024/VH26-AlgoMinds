@@ -39,6 +39,9 @@ jobs:
       - name: Verify safe Python corpus (exit 0)
         run: python cli.py --target python/safe/ --github-summary
 
+      - name: Verify PR Candidate Security Gate
+        run: python cli.py --target demo_fixtures/demo_candidate.py --github-summary
+
       - name: Generate baseline from leak corpus (expect exit 1)
         shell: bash
         run: |
