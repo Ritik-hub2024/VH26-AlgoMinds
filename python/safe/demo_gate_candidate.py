@@ -1,6 +1,6 @@
-"""PR Security Gate Demo Fixture - Unclosed Leak."""
+"""PR Security Gate Demo Fixture - Resolved with Context Manager."""
 
 
 def read_data():
-    f = open("data.txt")
-    return f.read()
+    with open("data.txt") as f:
+        return f.read()
