@@ -5,13 +5,8 @@
     "scope": "Intra-procedural AST Resource Lifecycle & Conservative Ownership Analysis",
     "engine": "Pure Python AST (built-in ast module)",
     "benchmark_scope": "Expanded Canonical Corpus (46 cases)",
-<<<<<<< Updated upstream
-    "timestamp": "2026-09-05 01:43:20 UTC",
-    "duration_seconds": 0.0067,
-=======
-    "timestamp": "2026-09-05 02:22:04 UTC",
-    "duration_seconds": 0.1909,
->>>>>>> Stashed changes
+    "timestamp": "2026-09-05 02:52:03 UTC",
+    "duration_seconds": 0.0963,
     "shuffle": false,
     "seed": null
   },

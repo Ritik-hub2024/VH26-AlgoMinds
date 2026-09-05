@@ -182,7 +182,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-<<<<<<< Updated upstream
+        if parsed.path in ("/api/scan/upload-file", "/api/upload-file"):
+            self._handle_api_upload(force_mode="file")
+            return
+        if parsed.path in ("/api/scan/upload-folder", "/api/upload-folder"):
+            self._handle_api_upload(force_mode="folder")
+            return
         if parsed.path in ("/api/scan/upload-zip", "/api/projects/upload-zip"):
             self._handle_upload_zip()
             return
@@ -212,13 +217,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if parsed.path in ("/api/github/pull-request", "/github/pull-request"):
             self._handle_github_pull_request()
-=======
-        if parsed.path in ("/api/scan/upload-file", "/api/upload-file"):
-            self._handle_api_upload(force_mode="file")
-            return
-        if parsed.path in ("/api/scan/upload-folder", "/api/upload-folder"):
-            self._handle_api_upload(force_mode="folder")
->>>>>>> Stashed changes
             return
         if parsed.path in ("/api/scan/upload", "/api/upload"):
             self._handle_api_upload()
@@ -1290,11 +1288,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             },
         }
 
-<<<<<<< Updated upstream
-=======
         # Persist scan result automatically for Admin & History
         scan_rec = None
->>>>>>> Stashed changes
         try:
             scan_rec = self.db.record_scan(
                 report=report,
@@ -1309,8 +1304,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as db_err:
             print(f"[!] Warning: Failed to persist scan to database: {db_err}", file=sys.stderr)
 
-<<<<<<< Updated upstream
-=======
         if scan_rec:
             data["scan_id"] = scan_rec.scan_id
             data["project_id"] = scan_rec.project_id
@@ -1321,7 +1314,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             data["scan_type"] = scan_type
 
         # Update frontend/report.json for offline tooling
->>>>>>> Stashed changes
         try:
             report_file = FRONTEND_DIR / "report.json"
             with open(report_file, "w", encoding="utf-8") as rf:
@@ -1437,9 +1429,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"error": "No valid files provided in upload.", "status": "ERROR"}, status=400)
                 return
 
-<<<<<<< Updated upstream
-            if len(clean_files) == 1 and not target_folder_name:
-=======
             # Determine whether single file or folder upload
             if force_mode == "file":
                 is_single = True
@@ -1455,7 +1444,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 is_single = False
 
             if is_single:
->>>>>>> Stashed changes
                 single_path, single_content = clean_files[0]
                 if not single_path.lower().endswith(".py"):
                     self._send_json({"error": "Invalid file type: Only Python (.py) files are supported.", "status": "ERROR"}, status=400)
@@ -1479,13 +1467,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 default_project_id = f"upload-{folder_slug}"
                 scan_type = "PROJECT UPLOAD"
 
-<<<<<<< Updated upstream
-=======
             final_project_id = requested_project_id or default_project_id
             final_project_name = requested_project_name or default_proj_name
 
             # Execute AST scan in isolated temporary directory
->>>>>>> Stashed changes
             with tempfile.TemporaryDirectory(prefix="leakguard_upload_") as tmpdir:
                 tmpdir_path = Path(tmpdir).resolve()
                 for rel_path, content_bytes in py_files:

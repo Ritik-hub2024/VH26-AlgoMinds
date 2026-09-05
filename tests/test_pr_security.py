@@ -258,6 +258,55 @@ class TestPRSecurityExperience(unittest.TestCase):
             self.assertEqual(data["version"], "2.1.0")
             self.assertGreater(len(data["runs"][0]["results"]), 0)
 
+    def test_cli_sarif_with_baseline_gating_creates_valid_sarif(self):
+        """CLI SARIF generation with baseline returns exit 0 and genuinely creates results.sarif."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            bl_file = Path(tmp_dir) / "leak_baseline.json"
+            out_file = Path(tmp_dir) / "results.sarif"
+
+            # 1. Generate baseline
+            code_bl = main(["--target", str(self.python_leaks), "--baseline-out", str(bl_file)])
+            self.assertEqual(code_bl, 1)
+            self.assertTrue(bl_file.exists())
+
+            # 2. Run SARIF generation with baseline (must exit 0)
+            code_sarif = main([
+                "--target", str(self.python_leaks),
+                "--baseline", str(bl_file),
+                "-f", "sarif",
+                "-o", str(out_file),
+            ])
+            self.assertEqual(code_sarif, 0)
+            self.assertTrue(out_file.exists())
+
+            # 3. Validate SARIF JSON content
+            data = json.loads(out_file.read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], "2.1.0")
+            self.assertEqual(data["runs"][0]["tool"]["driver"]["name"], "LeakGuard")
+            results = data["runs"][0]["results"]
+            self.assertGreaterEqual(len(results), 1)
+            for res in results:
+                self.assertIn("ruleId", res)
+                self.assertIn("level", res)
+                self.assertIn("locations", res)
+                loc = res["locations"][0]["physicalLocation"]
+                self.assertGreater(loc["region"]["startLine"], 0)
+                self.assertTrue(not loc["artifactLocation"]["uri"].startswith("/"))
+
+    def test_cli_sarif_nested_dir_and_auto_format(self):
+        """CLI automatically creates parent directories and detects SARIF format from .sarif extension."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            nested_sarif = Path(tmp_dir) / "nested" / "deep" / "results.sarif"
+            self.assertFalse(nested_sarif.parent.exists())
+
+            # Call without -f sarif; extension should auto-detect sarif
+            code = main(["--target", str(self.python_safe), "-o", str(nested_sarif)])
+            self.assertEqual(code, 0)
+            self.assertTrue(nested_sarif.exists())
+            data = json.loads(nested_sarif.read_text(encoding="utf-8"))
+            self.assertEqual(data["version"], "2.1.0")
+            self.assertEqual(data["runs"][0]["tool"]["driver"]["name"], "LeakGuard")
+
 
 if __name__ == "__main__":
     unittest.main()

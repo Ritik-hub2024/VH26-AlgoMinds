@@ -572,26 +572,11 @@ document.addEventListener('DOMContentLoaded', () => {
         target: scanTargetSelect ? scanTargetSelect.value : ''
       };
 
-<<<<<<< Updated upstream
       const res = await fetch('/api/projects/workspace/scan', {
-=======
-      const uploadEndpoint = mode === 'folder' ? '/api/scan/upload-folder' : '/api/scan/upload-file';
-      let res = await fetch(uploadEndpoint, {
->>>>>>> Stashed changes
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
-      }).catch(() => null);
-
-      if (!res || res.status === 404) {
-        res = await fetch('/api/scan/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-      }
+      });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));

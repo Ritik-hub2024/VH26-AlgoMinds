@@ -59,14 +59,6 @@ jobs:
         run: |
           python cli.py --target python/leaks/ --baseline leak_baseline.json --ci-export leakguard-ci-result.json --github-summary
 
-      - name: Upload LeakGuard CI Intelligence Result Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: leakguard-ci-result-py${{ matrix.python-version }}
-          path: leakguard-ci-result.json
-          if-no-files-found: warn
-
       - name: Verify new leak blocks CI
         shell: bash
         run: |
@@ -91,8 +83,16 @@ jobs:
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('results.sarif') != ''
         continue-on-error: true
         with:
           sarif_file: results.sarif
           category: leakguard-python-${{ matrix.python-version }}
+
+      - name: Upload LeakGuard CI Intelligence Result Artifact
+        if: always() && hashFiles('leakguard-ci-result.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: leakguard-ci-result-py${{ matrix.python-version }}
+          path: leakguard-ci-result.json
+          if-no-files-found: warn

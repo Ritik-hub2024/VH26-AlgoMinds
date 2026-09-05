@@ -277,11 +277,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sys.stderr.write(f"Error writing baseline file '{args.baseline_out}': {b_err}\n")
 
     # Determine reporter
-    if args.format == "json":
+    effective_format = args.format
+    if effective_format == "console" and args.output:
+        out_lower = args.output.lower()
+        if out_lower.endswith(".sarif"):
+            effective_format = "sarif"
+        elif out_lower.endswith(".json"):
+            effective_format = "json"
+        elif out_lower.endswith(".md"):
+            effective_format = "markdown"
+
+    if effective_format == "json":
         reporter = JSONReporter(stream=sys.stdout)
-    elif args.format == "sarif":
+    elif effective_format == "sarif":
         reporter = SARIFReporter(stream=sys.stdout)
-    elif args.format == "markdown":
+    elif effective_format == "markdown":
         reporter = MarkdownReporter(stream=sys.stdout)
     else:
         reporter = ConsoleReporter(stream=sys.stdout, use_color=not args.no_color)
@@ -297,14 +307,26 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Optional file output
     if args.output:
         try:
-            with open(args.output, "w", encoding="utf-8") as out_f:
-                if args.format == "json":
+            out_path = Path(args.output)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_format = args.format
+            if out_format == "console":
+                out_lower = str(out_path).lower()
+                if out_lower.endswith(".sarif"):
+                    out_format = "sarif"
+                elif out_lower.endswith(".json"):
+                    out_format = "json"
+                elif out_lower.endswith(".md"):
+                    out_format = "markdown"
+
+            with open(out_path, "w", encoding="utf-8") as out_f:
+                if out_format == "json":
                     out_reporter = JSONReporter(stream=out_f)
                     out_reporter.report(report)
-                elif args.format == "sarif":
+                elif out_format == "sarif":
                     out_reporter = SARIFReporter(stream=out_f)
                     out_reporter.report(report)
-                elif args.format == "markdown":
+                elif out_format == "markdown":
                     out_reporter = MarkdownReporter(stream=out_f)
                     out_reporter.report(report, diff_report=diff_report)
                 else:
