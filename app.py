@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+import uuid
 import webbrowser
 import zipfile
 from email import message_from_bytes
@@ -102,6 +103,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     @property
     def db(self) -> Database:
+        if not hasattr(self, "server") or self.server is None:
+            if not hasattr(self, "_test_db") or self._test_db is None:
+                self._test_db = Database()
+            return self._test_db
         if not hasattr(self.server, "_db") or self.server._db is None:
             self.server._db = Database()
         return self.server._db
@@ -121,6 +126,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/api/scan":
             self._handle_api_scan(parsed.query)
+            return
+        if parsed.path in ("/api/projects/workspace/scan", "/api/projects/scan", "/api/scan/workspace"):
+            self._handle_workspace_scan()
             return
         if parsed.path == "/api/reset":
             self._handle_api_reset()
@@ -191,7 +199,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if parsed.path in ("/api/scan/upload-zip", "/api/projects/upload-zip"):
             self._handle_upload_zip()
             return
-        if parsed.path in ("/api/projects/workspace/scan", "/api/projects/scan", "/api/github/scan", "/github/scan"):
+        if parsed.path in ("/api/projects/workspace/scan", "/api/projects/scan", "/api/scan/workspace", "/api/scan", "/api/github/scan", "/github/scan"):
             self._handle_workspace_scan()
             return
         if parsed.path == "/api/findings/generate-fix":
@@ -665,6 +673,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _handle_workspace_scan(self):
         """Run full AST static analysis on active workspace."""
         try:
+            parsed = urllib.parse.urlparse(self.path)
+            qs = urllib.parse.parse_qs(parsed.query)
             content_length = int(self.headers.get("Content-Length", 0))
             payload = {}
             if content_length > 0:
@@ -674,8 +684,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 except Exception:
                     payload = {}
 
-            ws_id = payload.get("workspace_id") or "default"
-            target_sub = payload.get("target", "").strip()
+            ws_id = payload.get("workspace_id") or qs.get("workspace_id", ["default"])[0] or "default"
+            target_sub = payload.get("target") or qs.get("target", [""])[0] or ""
+            target_sub = target_sub.strip()
 
             workspace = self.ws_mgr.get_workspace(ws_id)
             scan_path = workspace.root_path
@@ -807,22 +818,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             status_str = "FAILED" if (len(findings) > 0 or len(syntax_errors) > 0) else "PASS"
 
+            scan_rec = None
+            target_override = target_sub if target_sub else workspace.project_name
             try:
-                self.db.record_scan(
+                repo_name = getattr(workspace.git_manager, "connected_repo", None) or "Workspace"
+                scan_rec = self.db.record_scan(
                     report=report,
-                    target_override=workspace.project_name,
+                    target_override=target_override,
                     prepared_findings=findings,
                     project_id=workspace.workspace_id,
                     project_name=workspace.project_name,
                     scan_type="WORKSPACE SCAN",
                     branch="main",
-                    repository="Workspace",
+                    repository=repo_name,
                 )
             except Exception as e:
                 print(f"[!] Warning: DB record_scan failed: {e}", file=sys.stderr)
 
             resp_data = {
                 "status": status_str,
+                "scan_id": scan_rec.scan_id if scan_rec else f"scan_{uuid.uuid4().hex[:8]}",
+                "project_id": scan_rec.project_id if scan_rec else workspace.workspace_id,
+                "scan_type": scan_rec.scan_type if scan_rec else "WORKSPACE SCAN",
+                "health_score": scan_rec.health_score if scan_rec else (100 if status_str == "PASS" else 60),
+                "target": target_sub or str(scan_path),
                 "workspace_id": workspace.workspace_id,
                 "project_name": workspace.project_name,
                 "files_scanned": report.files_scanned,

@@ -316,7 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeFix = null;
     isScanning = false;
 
-    updateWorkflowProgress(1, 'IDLE', { sub: 'Ready' });
+    updateWorkflowProgress(1, 'READY', { sub: 'Ready' });
     setStatus('IDLE');
 
     if (wsProjectName) wsProjectName.textContent = 'examples/';
@@ -579,6 +579,17 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (!res.ok) {
+        // Graceful fallback to GET /api/scan if workspace scan route is unavailable
+        if (res.status === 404) {
+          const fallbackRes = await fetch(`/api/scan?target=${encodeURIComponent(payload.target || 'examples')}`);
+          if (fallbackRes.ok) {
+            const fbData = await fallbackRes.json();
+            renderScanReport(fbData, new Date());
+            updateVerifySummary();
+            if (typeof loadAdminData === 'function') loadAdminData().catch(e => console.warn(e));
+            return;
+          }
+        }
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || `Scan failed (HTTP ${res.status})`);
       }
@@ -586,12 +597,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const reportData = await res.json();
       renderScanReport(reportData, new Date());
       updateVerifySummary();
+      if (typeof loadAdminData === 'function') loadAdminData().catch(e => console.warn('[LeakGuard] Admin refresh error:', e));
     } catch (err) {
       console.error('[LeakGuard] Scan error:', err);
       setStatus('ERROR', {
         title: 'Scan Error',
         message: err.message || 'Could not execute static AST scan.'
       });
+      updateWorkflowProgress(2, 'ERROR', { sub: 'Failed' });
     } finally {
       isScanning = false;
       if (btnScan) btnScan.disabled = false;
@@ -650,6 +663,117 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('[LeakGuard] ZIP upload error:', err);
       setStatus('ERROR', {
         title: 'ZIP Extraction Error',
+        message: err.message
+      });
+      updateWorkflowProgress(1, 'ERROR', { sub: 'Failed' });
+    } finally {
+      isScanning = false;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Single Python File Upload Handling
+  // -------------------------------------------------------------
+  async function handleSingleFileUpload(file) {
+    if (!file || isScanning) return;
+    if (!file.name.toLowerCase().endsWith('.py')) {
+      alert('Please upload a valid Python (.py) file.');
+      return;
+    }
+
+    isScanning = true;
+    updateWorkflowProgress(1, 'UPLOADING', { sub: 'Uploading...' });
+    setStatus('SCANNING', {
+      step: 'Uploading Python file...',
+      desc: `Analyzing '${file.name}' in isolated sandbox...`
+    });
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file, file.name);
+
+      const res = await fetch('/api/scan/upload-file', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Upload failed (HTTP ${res.status})`);
+      }
+
+      const reportData = await res.json();
+      currentProjectName = file.name;
+      if (wsProjectName) wsProjectName.textContent = file.name;
+      if (wsStatusBadge) {
+        wsStatusBadge.textContent = 'File Uploaded';
+        wsStatusBadge.className = 'badge badge-clean';
+      }
+      renderScanReport(reportData, new Date());
+      updateVerifySummary();
+      loadAdminData().catch(() => {});
+    } catch (err) {
+      console.error('[LeakGuard] File upload error:', err);
+      setStatus('ERROR', {
+        title: 'File Upload Error',
+        message: err.message
+      });
+      updateWorkflowProgress(1, 'ERROR', { sub: 'Failed' });
+    } finally {
+      isScanning = false;
+    }
+  }
+
+  // -------------------------------------------------------------
+  // Folder Upload Handling
+  // -------------------------------------------------------------
+  async function handleFolderUpload(files) {
+    if (!files || files.length === 0 || isScanning) return;
+    const pyFiles = files.filter(f => f.name.toLowerCase().endsWith('.py'));
+    if (pyFiles.length === 0) {
+      alert('No Python (.py) files found in the selected folder.');
+      return;
+    }
+
+    isScanning = true;
+    updateWorkflowProgress(1, 'UPLOADING', { sub: 'Uploading...' });
+    setStatus('SCANNING', {
+      step: 'Uploading folder...',
+      desc: `Analyzing ${pyFiles.length} Python files in isolated sandbox...`
+    });
+
+    try {
+      const formData = new FormData();
+      for (const f of pyFiles) {
+        const path = f.webkitRelativePath || f.name;
+        formData.append('file', f, path);
+      }
+
+      const res = await fetch('/api/scan/upload-folder', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Folder upload failed (HTTP ${res.status})`);
+      }
+
+      const reportData = await res.json();
+      const folderName = pyFiles[0].webkitRelativePath ? pyFiles[0].webkitRelativePath.split('/')[0] : 'Uploaded Folder';
+      currentProjectName = folderName;
+      if (wsProjectName) wsProjectName.textContent = folderName;
+      if (wsStatusBadge) {
+        wsStatusBadge.textContent = 'Folder Uploaded';
+        wsStatusBadge.className = 'badge badge-clean';
+      }
+      renderScanReport(reportData, new Date());
+      updateVerifySummary();
+      loadAdminData().catch(() => {});
+    } catch (err) {
+      console.error('[LeakGuard] Folder upload error:', err);
+      setStatus('ERROR', {
+        title: 'Folder Upload Error',
         message: err.message
       });
       updateWorkflowProgress(1, 'ERROR', { sub: 'Failed' });
@@ -1363,6 +1487,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = inputUploadZip.files[0];
         inputUploadZip.value = '';
         await handleZipUpload(file);
+      }
+    });
+  }
+
+  if (btnUploadFile && inputUploadFile) {
+    btnUploadFile.addEventListener('click', () => inputUploadFile.click());
+    inputUploadFile.addEventListener('change', async () => {
+      if (inputUploadFile.files && inputUploadFile.files[0]) {
+        const file = inputUploadFile.files[0];
+        inputUploadFile.value = '';
+        await handleSingleFileUpload(file);
+      }
+    });
+  }
+
+  if (btnUploadFolder && inputUploadFolder) {
+    btnUploadFolder.addEventListener('click', () => inputUploadFolder.click());
+    inputUploadFolder.addEventListener('change', async () => {
+      if (inputUploadFolder.files && inputUploadFolder.files.length > 0) {
+        const files = Array.from(inputUploadFolder.files);
+        inputUploadFolder.value = '';
+        await handleFolderUpload(files);
       }
     });
   }

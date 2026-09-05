@@ -225,6 +225,108 @@ class TestServerHandler(unittest.TestCase):
         self.assertEqual(data2["status"], "FAILED")
         self.assertEqual(data2["leaks_detected"], 16)
 
+    def test_workspace_scan_endpoint_post_contract(self):
+        """Regression test: /api/projects/workspace/scan returns 200 with full Phase 6 normalized contract."""
+        payload = json.dumps({"workspace_id": "default", "target": "examples"}).encode("utf-8")
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO(payload)
+        self.handler.headers = {"Content-Length": str(len(payload))}
+        self.handler.path = "/api/projects/workspace/scan"
+        self.handler._handle_workspace_scan()
+
+        data = self._get_response_data()
+        self.assertEqual(data["status"], "FAILED")
+        self.assertIn("scan_id", data)
+        self.assertIn("project_id", data)
+        self.assertIn("scan_type", data)
+        self.assertEqual(data["scan_type"], "WORKSPACE SCAN")
+        self.assertIn("health_score", data)
+        self.assertIn("target", data)
+        self.assertEqual(data["target"], "examples")
+        self.assertEqual(data["files_scanned"], 3)
+        self.assertEqual(data["clean_files"], 1)
+        self.assertEqual(data["syntax_errors"], 1)
+        self.assertEqual(data["leaks_detected"], 1)
+        self.assertGreater(len(data["findings"]), 0)
+        self.assertIn("summary", data)
+
+        finding = data["findings"][0]
+        self.assertIn("file", finding)
+        self.assertIn("line", finding)
+        self.assertIn("resource", finding)
+        self.assertIn("severity", finding)
+        self.assertIn("reason", finding)
+        self.assertIn("leak_path", finding)
+        self.assertIn("recommendation", finding)
+
+    def test_workspace_scan_endpoint_safe_target_pass(self):
+        """Verify scanning a safe target yields PASS with health_score 100."""
+        payload = json.dumps({"workspace_id": "default", "target": "python/safe"}).encode("utf-8")
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO(payload)
+        self.handler.headers = {"Content-Length": str(len(payload))}
+        self.handler.path = "/api/projects/workspace/scan"
+        self.handler._handle_workspace_scan()
+
+        data = self._get_response_data()
+        self.assertEqual(data["status"], "PASS")
+        self.assertEqual(data["leaks_detected"], 0)
+        self.assertEqual(data["syntax_errors"], 0)
+        self.assertEqual(data["health_score"], 100)
+
+    def test_workspace_scan_single_file_leak(self):
+        """Verify scanning a specific leaking Python file yields FAILED and detailed leak path."""
+        payload = json.dumps({"workspace_id": "default", "target": "python/leaks/file_no_close.py"}).encode("utf-8")
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO(payload)
+        self.handler.headers = {"Content-Length": str(len(payload))}
+        self.handler.path = "/api/projects/workspace/scan"
+        self.handler._handle_workspace_scan()
+
+        data = self._get_response_data()
+        self.assertEqual(data["status"], "FAILED")
+        self.assertEqual(data["leaks_detected"], 1)
+        f = data["findings"][0]
+        self.assertEqual(f["line"], 4)
+        self.assertEqual(f["variable"], "f")
+        self.assertIn("not guaranteed to be closed", f["reason"])
+
+    def test_workspace_scan_persists_to_admin_history(self):
+        """Verify workspace remediation scan is recorded in SQLite and accessible to Admin dashboard."""
+        payload = json.dumps({"workspace_id": "default", "target": "examples"}).encode("utf-8")
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO(payload)
+        self.handler.headers = {"Content-Length": str(len(payload))}
+        self.handler.path = "/api/projects/workspace/scan"
+        self.handler._handle_workspace_scan()
+
+        scan_data = self._get_response_data()
+        scan_id = scan_data["scan_id"]
+
+        # Now query Admin scans endpoint
+        self.handler.wfile = BytesIO()
+        self.handler.headers = {"Host": "localhost:8000", "Content-Length": "0"}
+        self.handler._handle_admin_scans("limit=10")
+        admin_data = self._get_response_data()
+
+        self.assertEqual(admin_data["status"], "SUCCESS")
+        found_scan = any(s.get("scan_id") == scan_id for s in admin_data["scans"])
+        self.assertTrue(found_scan, f"Scan {scan_id} must appear in Admin scans list")
+
+    def test_workspace_scan_get_method(self):
+        """Verify GET /api/projects/workspace/scan?target=python/safe executes properly."""
+        self.handler.wfile = BytesIO()
+        self.handler.rfile = BytesIO()
+        self.handler.headers = {"Host": "localhost:8000", "Content-Length": "0"}
+        self.handler.path = "/api/projects/workspace/scan?target=python/safe"
+        self.handler._handle_workspace_scan()
+
+        data = self._get_response_data()
+        self.assertEqual(data["status"], "PASS")
+        self.assertEqual(data["target"], "python/safe")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
