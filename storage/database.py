@@ -5,6 +5,7 @@ Stores project metadata, scan executions, and detected leak findings.
 """
 
 import contextlib
+import os
 import sqlite3
 import threading
 import uuid
@@ -16,7 +17,8 @@ from models.project import Project, ProjectHealth, ScanRecord, FindingRecord, Sc
 from models.report import AnalysisReport
 
 
-_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "leakguard.db"
+_CANONICAL_DB_PATH = Path(__file__).resolve().parent.parent / "leakguard.db"
+_DEFAULT_DB_PATH = Path(os.environ.get("LEAKGUARD_DB_PATH") or os.environ.get("LEAKGUARD_DB") or _CANONICAL_DB_PATH)
 
 
 def calculate_health_score(
@@ -90,7 +92,11 @@ class Database:
     """Thread-safe SQLite database adapter for LeakGuard project history."""
 
     def __init__(self, db_path: Optional[Union[str, Path]] = None) -> None:
-        self.db_path = str(db_path) if db_path else str(_DEFAULT_DB_PATH)
+        if db_path:
+            self.db_path = str(db_path)
+        else:
+            env_db = os.environ.get("LEAKGUARD_DB_PATH") or os.environ.get("LEAKGUARD_DB")
+            self.db_path = str(env_db) if env_db else str(_DEFAULT_DB_PATH)
         self._lock = threading.Lock()
         self._init_db()
 

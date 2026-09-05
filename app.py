@@ -182,6 +182,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+<<<<<<< Updated upstream
         if parsed.path in ("/api/scan/upload-zip", "/api/projects/upload-zip"):
             self._handle_upload_zip()
             return
@@ -211,6 +212,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if parsed.path in ("/api/github/pull-request", "/github/pull-request"):
             self._handle_github_pull_request()
+=======
+        if parsed.path in ("/api/scan/upload-file", "/api/upload-file"):
+            self._handle_api_upload(force_mode="file")
+            return
+        if parsed.path in ("/api/scan/upload-folder", "/api/upload-folder"):
+            self._handle_api_upload(force_mode="folder")
+>>>>>>> Stashed changes
             return
         if parsed.path in ("/api/scan/upload", "/api/upload"):
             self._handle_api_upload()
@@ -1282,8 +1290,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             },
         }
 
+<<<<<<< Updated upstream
+=======
+        # Persist scan result automatically for Admin & History
+        scan_rec = None
+>>>>>>> Stashed changes
         try:
-            self.db.record_scan(
+            scan_rec = self.db.record_scan(
                 report=report,
                 target_override=target_display,
                 prepared_findings=findings,
@@ -1296,6 +1309,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as db_err:
             print(f"[!] Warning: Failed to persist scan to database: {db_err}", file=sys.stderr)
 
+<<<<<<< Updated upstream
+=======
+        if scan_rec:
+            data["scan_id"] = scan_rec.scan_id
+            data["project_id"] = scan_rec.project_id
+            data["scan_type"] = scan_rec.scan_type
+            data["health_score"] = scan_rec.health_score
+        else:
+            data["project_id"] = project_id
+            data["scan_type"] = scan_type
+
+        # Update frontend/report.json for offline tooling
+>>>>>>> Stashed changes
         try:
             report_file = FRONTEND_DIR / "report.json"
             with open(report_file, "w", encoding="utf-8") as rf:
@@ -1305,7 +1331,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         self._send_json(data)
 
-    def _handle_api_upload(self):
+    def _handle_api_upload(self, force_mode: str | None = None):
         try:
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length <= 0:
@@ -1320,15 +1346,37 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             uploaded_files = []
             target_folder_name = None
+            requested_project_id = None
+            requested_project_name = None
+
+            parsed_url = urllib.parse.urlparse(self.path)
+            url_qs = urllib.parse.parse_qs(parsed_url.query)
+            if "project_id" in url_qs:
+                requested_project_id = url_qs["project_id"][0].strip()
+            if "project_name" in url_qs:
+                requested_project_name = url_qs["project_name"][0].strip()
 
             if "multipart/form-data" in content_type:
                 msg = message_from_bytes(f"Content-Type: {content_type}\r\n\r\n".encode("latin1") + raw_body)
                 for part in msg.walk():
                     fname = part.get_filename()
+                    name_field = part.get_param("name", header="content-disposition")
                     if fname:
                         payload = part.get_payload(decode=True)
                         if payload is not None:
                             uploaded_files.append((fname, payload))
+                    elif name_field == "project_id":
+                        p_val = part.get_payload(decode=True)
+                        if p_val:
+                            requested_project_id = p_val.decode("utf-8", errors="replace").strip()
+                    elif name_field == "project_name":
+                        p_val = part.get_payload(decode=True)
+                        if p_val:
+                            requested_project_name = p_val.decode("utf-8", errors="replace").strip()
+                    elif name_field in ("target_name", "folder_name"):
+                        p_val = part.get_payload(decode=True)
+                        if p_val:
+                            target_folder_name = p_val.decode("utf-8", errors="replace").strip()
             else:
                 try:
                     payload_data = json.loads(raw_body.decode("utf-8"))
@@ -1337,24 +1385,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     return
 
                 if isinstance(payload_data, dict):
-                    target_folder_name = payload_data.get("target_name")
+                    target_folder_name = payload_data.get("target_name") or payload_data.get("folder_name")
+                    if payload_data.get("project_id"):
+                        requested_project_id = str(payload_data["project_id"]).strip()
+                    if payload_data.get("project_name"):
+                        requested_project_name = str(payload_data["project_name"]).strip()
+
                     if "files" in payload_data and isinstance(payload_data["files"], list):
                         for item in payload_data["files"]:
-                            fpath = item.get("path") or item.get("filename") or ""
-                            fcontent = item.get("content", "")
+                            fpath = item.get("path") or item.get("filename") or item.get("name") or ""
+                            fcontent = item.get("content", item.get("code", ""))
                             if isinstance(fcontent, str):
                                 fcontent = fcontent.encode("utf-8")
                             uploaded_files.append((fpath, fcontent))
-                    elif "filename" in payload_data:
-                        fpath = payload_data.get("filename") or ""
-                        fcontent = payload_data.get("content", "")
+                    elif any(k in payload_data for k in ("filename", "path", "name", "file")):
+                        fpath = payload_data.get("filename") or payload_data.get("path") or payload_data.get("name") or payload_data.get("file") or ""
+                        fcontent = payload_data.get("content", payload_data.get("code", ""))
                         if isinstance(fcontent, str):
                             fcontent = fcontent.encode("utf-8")
                         uploaded_files.append((fpath, fcontent))
                 elif isinstance(payload_data, list):
                     for item in payload_data:
-                        fpath = item.get("path") or item.get("filename") or ""
-                        fcontent = item.get("content", "")
+                        fpath = item.get("path") or item.get("filename") or item.get("name") or ""
+                        fcontent = item.get("content", item.get("code", ""))
                         if isinstance(fcontent, str):
                             fcontent = fcontent.encode("utf-8")
                         uploaded_files.append((fpath, fcontent))
@@ -1384,27 +1437,55 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send_json({"error": "No valid files provided in upload.", "status": "ERROR"}, status=400)
                 return
 
+<<<<<<< Updated upstream
             if len(clean_files) == 1 and not target_folder_name:
+=======
+            # Determine whether single file or folder upload
+            if force_mode == "file":
+                is_single = True
+            elif force_mode == "folder":
+                is_single = False
+            elif len(clean_files) == 1:
+                first_path = clean_files[0][0]
+                if not target_folder_name or target_folder_name.endswith(".py") or target_folder_name == first_path or "/" not in first_path:
+                    is_single = True
+                else:
+                    is_single = False
+            else:
+                is_single = False
+
+            if is_single:
+>>>>>>> Stashed changes
                 single_path, single_content = clean_files[0]
                 if not single_path.lower().endswith(".py"):
                     self._send_json({"error": "Invalid file type: Only Python (.py) files are supported.", "status": "ERROR"}, status=400)
                     return
-                py_files = [(Path(single_path).name, single_content)]
-                is_single = True
-                target_display = f"upload:{Path(single_path).name}"
-                project_name = f"Upload: {Path(single_path).name}"
+                fname = Path(single_path).name
+                py_files = [(fname, single_content)]
+                target_display = f"upload:{fname}"
+                default_proj_name = f"Upload: {fname}"
+                stem = Path(fname).stem.replace("_", "-").replace(".", "-").lower()
+                default_project_id = f"upload-{stem}"
                 scan_type = "FILE UPLOAD"
             else:
                 py_files = [(p, c) for p, c in clean_files if p.lower().endswith(".py")]
                 if not py_files:
                     self._send_json({"error": "No Python (.py) files found in uploaded folder.", "status": "ERROR"}, status=400)
                     return
-                is_single = False
                 folder_name = target_folder_name or (Path(py_files[0][0]).parts[0] if len(Path(py_files[0][0]).parts) > 1 else "uploaded_project")
                 target_display = f"upload:{folder_name}"
-                project_name = f"Upload: {folder_name}"
+                default_proj_name = f"Upload: {folder_name}"
+                folder_slug = folder_name.replace("_", "-").replace(".", "-").replace("/", "-").lower()
+                default_project_id = f"upload-{folder_slug}"
                 scan_type = "PROJECT UPLOAD"
 
+<<<<<<< Updated upstream
+=======
+            final_project_id = requested_project_id or default_project_id
+            final_project_name = requested_project_name or default_proj_name
+
+            # Execute AST scan in isolated temporary directory
+>>>>>>> Stashed changes
             with tempfile.TemporaryDirectory(prefix="leakguard_upload_") as tmpdir:
                 tmpdir_path = Path(tmpdir).resolve()
                 for rel_path, content_bytes in py_files:
@@ -1430,8 +1511,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     report=report,
                     target_display=target_display,
                     base_dir=tmpdir_path,
-                    project_id=f"upload_{int(time.time() * 1000)}",
-                    project_name=project_name,
+                    project_id=final_project_id,
+                    project_name=final_project_name,
                     scan_type=scan_type,
                     branch="upload",
                     repository="Uploaded Code",
@@ -1444,6 +1525,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
