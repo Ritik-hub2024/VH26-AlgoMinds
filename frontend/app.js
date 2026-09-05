@@ -217,11 +217,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!node) return;
       node.classList.remove('active', 'completed', 'pending');
 
-      if (stepIdx < stepNumber) {
+      if (stepIdx < stepNumber || (stepIdx === stepNumber && stateText === 'COMMITTED')) {
         node.classList.add('completed');
         const badge = node.querySelector('.step-badge');
         if (badge) badge.textContent = '✓';
-        if (stepSubs[idx]) stepSubs[idx].textContent = 'Done';
+        if (stepSubs[idx]) stepSubs[idx].textContent = details.sub || 'Done';
       } else if (stepIdx === stepNumber) {
         node.classList.add('active');
         const badge = node.querySelector('.step-badge');
@@ -237,7 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     stepLines.forEach((line, idx) => {
       if (!line) return;
-      if (idx + 1 < stepNumber) {
+      if (idx + 1 < stepNumber || (idx + 1 === stepNumber && stateText === 'COMMITTED')) {
         line.classList.add('completed');
       } else {
         line.classList.remove('completed');
@@ -703,6 +703,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const reportData = await res.json();
+      if (reportData.workspace_id) {
+        currentWorkspaceId = reportData.workspace_id;
+      }
       currentProjectName = file.name;
       if (wsProjectName) wsProjectName.textContent = file.name;
       if (wsStatusBadge) {
@@ -760,6 +763,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const reportData = await res.json();
+      if (reportData.workspace_id) {
+        currentWorkspaceId = reportData.workspace_id;
+      }
       const folderName = pyFiles[0].webkitRelativePath ? pyFiles[0].webkitRelativePath.split('/')[0] : 'Uploaded Folder';
       currentProjectName = folderName;
       if (wsProjectName) wsProjectName.textContent = folderName;
@@ -996,7 +1002,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // -------------------------------------------------------------
   async function handleCommitChanges() {
     if (btnCommitChanges) btnCommitChanges.disabled = true;
-    updateWorkflowProgress(6, 'COMMITTING', { sub: 'Creating Branch...' });
+    updateWorkflowProgress(6, 'COMMITTING...', { sub: 'Committing...' });
+
+    if (gitActionResult) {
+      gitActionResult.style.display = 'block';
+      gitActionResult.className = 'git-result-box';
+      gitActionResult.innerHTML = `<em>Committing verified changes...</em>`;
+    }
 
     try {
       const payload = {
@@ -1005,33 +1017,62 @@ document.addEventListener('DOMContentLoaded', () => {
         commit_message: inputCommitMsg ? inputCommitMsg.value.trim() : ''
       };
 
-      const res = await fetch('/api/github/commit', {
+      const res = await fetch('/api/commit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      const resData = await res.json();
-      if (!res.ok) throw new Error(resData.error || 'Commit failed.');
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok || resData.status === 'ERROR' || resData.success === false) {
+        throw new Error(resData.error || resData.reason || `Commit failed (HTTP ${res.status})`);
+      }
+
+      const commitSha = resData.commit_sha || resData.commit_hash || 'unknown';
+      const shortSha = commitSha.length > 8 ? commitSha.substring(0, 8) : commitSha;
+      const repoName = resData.repository || currentProjectName || 'Local Workspace';
+      const branchName = resData.branch || 'main';
+      const msgText = resData.commit_message || resData.message || 'fix: remediate resource leak';
 
       if (gitActionResult) {
         gitActionResult.style.display = 'block';
+        gitActionResult.className = 'git-result-box git-result-success';
         const commitUrl = resData.commit_url;
         const commitLink = commitUrl 
-          ? `<a href="${escapeHtml(commitUrl)}" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;margin-top:0.5rem;text-decoration:none;">🔗 View Commit on GitHub</a>` 
+          ? `<div style="margin-top: 0.6rem;"><a href="${escapeHtml(commitUrl)}" target="_blank" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;text-decoration:none;">🔗 View Commit on GitHub</a></div>` 
           : '';
+
         gitActionResult.innerHTML = `
-          <strong>✓ Changes Committed Successfully!</strong><br>
-          • <strong>Branch:</strong> <code>${escapeHtml(resData.branch)}</code><br>
-          • <strong>Commit SHA:</strong> <code>${escapeHtml(resData.commit_sha || resData.commit_hash)}</code><br>
-          • <strong>Files:</strong> ${escapeHtml((resData.files_committed || []).join(', '))}<br>
-          • <strong>Message:</strong> "${escapeHtml(resData.commit_message)}"<br>
+          <div style="font-weight: 700; font-size: 0.95rem; color: #34d399; margin-bottom: 0.5rem; letter-spacing: 0.02em;">
+            ✅ COMMIT SUCCESSFUL
+          </div>
+          <div style="font-size: 0.85rem; line-height: 1.6; font-family: var(--font-mono, monospace);">
+            <div><strong>Repository:</strong> ${escapeHtml(repoName)}</div>
+            <div><strong>Branch:</strong> <code>${escapeHtml(branchName)}</code></div>
+            <div><strong>Commit:</strong> <code>${escapeHtml(shortSha)}</code> <span style="color: #94a3b8; font-size: 0.75rem;">(${escapeHtml(commitSha)})</span></div>
+            <div><strong>Message:</strong> ${escapeHtml(msgText)}</div>
+            ${resData.files_committed && resData.files_committed.length ? `<div><strong>Files:</strong> ${escapeHtml(resData.files_committed.join(', '))}</div>` : ''}
+          </div>
           ${commitLink}
         `;
       }
       updateWorkflowProgress(6, 'COMMITTED', { sub: 'Committed ✓' });
+      if (btnCommitChanges) btnCommitChanges.disabled = false;
     } catch (err) {
-      alert(`Commit error: ${err.message}`);
+      console.error('[LeakGuard] Commit error:', err);
+      if (gitActionResult) {
+        gitActionResult.style.display = 'block';
+        gitActionResult.className = 'git-result-box git-result-error';
+        gitActionResult.innerHTML = `
+          <div style="font-weight: 700; font-size: 0.95rem; color: #f87171; margin-bottom: 0.5rem; letter-spacing: 0.02em;">
+            ❌ COMMIT FAILED
+          </div>
+          <div style="font-size: 0.85rem; line-height: 1.6;">
+            <strong>Reason:</strong> ${escapeHtml(err.message)}
+          </div>
+        `;
+      }
+      updateWorkflowProgress(6, 'COMMIT FAILED', { sub: 'Failed' });
       if (btnCommitChanges) btnCommitChanges.disabled = false;
     }
   }

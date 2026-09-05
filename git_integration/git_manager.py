@@ -7,6 +7,7 @@ archive fetching, dedicated branch creation, and verified Pull Request automatio
 import io
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -474,7 +475,34 @@ class GitManager:
     def is_git_repo(self, path: Optional[Path] = None) -> bool:
         """Check if target path is inside a valid git working tree."""
         target = path or self.repo_dir
-        return (target / ".git").exists() or self._run_git(["rev-parse", "--is-inside-work-tree"], cwd=target)[0] == 0
+        if not target:
+            return False
+        p = Path(target).resolve()
+        if not p.exists():
+            return False
+        return (p / ".git").exists() or self._run_git(["rev-parse", "--is-inside-work-tree"], cwd=p)[0] == 0
+
+    def get_repo_name(self, path: Optional[Path] = None) -> str:
+        """Get repository name or remote origin."""
+        target = path or self.repo_dir
+        if not target:
+            return "Local Workspace"
+        p = Path(target).resolve()
+        try:
+            code, out, _ = self._run_git(["config", "--get", "remote.origin.url"], cwd=p)
+            if code == 0 and out.strip():
+                url = out.strip()
+                if url.endswith(".git"):
+                    url = url[:-4]
+                if ":" in url and not url.startswith("http"):
+                    return url.split(":")[-1]
+                parts = url.split("/")
+                if len(parts) >= 2:
+                    return f"{parts[-2]}/{parts[-1]}"
+                return parts[-1]
+            return p.name
+        except Exception:
+            return p.name if p else "Local Workspace"
 
     def generate_branch_name(self, prefix: str = "fix-resource-leaks") -> str:
         """Generate a safe, dedicated branch name for LeakGuard remediation."""
@@ -518,11 +546,27 @@ class GitManager:
         if not verified_files:
             return {
                 "success": False,
+                "status": "error",
                 "error": "Cannot commit: No verified fixes are ready to commit.",
             }
 
-        if branch_name.lower() in ("main", "master", "trunk", "dev", "develop"):
+        workspace_path = Path(workspace_path).resolve()
+        if not workspace_path.exists():
+            return {
+                "success": False,
+                "status": "error",
+                "error": f"Workspace path does not exist: {workspace_path}",
+            }
+
+        # Sanitize commit message
+        clean_msg = commit_message.strip() if (commit_message and commit_message.strip()) else "fix: remediate resource leaks"
+        clean_msg = clean_msg.replace("\r\n", " ").replace("\n", " ").strip()
+
+        # Sanitize branch name
+        if not branch_name or branch_name.strip().lower() in ("main", "master", "trunk", "dev", "develop"):
             branch_name = self.generate_branch_name()
+        else:
+            branch_name = re.sub(r"[^a-zA-Z0-9_\-\./]", "-", branch_name.strip())
 
         # If live GitHub repository and token are active, create remote branch and push files
         if self.github_token and self.connected_repo and "/" in self.connected_repo:
@@ -542,7 +586,7 @@ class GitManager:
                     try:
                         content_str = file_full.read_text(encoding="utf-8", errors="ignore")
                         push_ok, commit_info, push_err = self.github_client.push_file_to_branch(
-                            owner, repo, branch_name, rel_file, content_str, commit_message
+                            owner, repo, branch_name, rel_file, content_str, clean_msg
                         )
                         if push_ok and commit_info:
                             remote_commit_sha = commit_info.get("sha")
@@ -555,51 +599,139 @@ class GitManager:
             if remote_commit_sha:
                 return {
                     "success": True,
+                    "status": "COMMITTED",
                     "branch": branch_name,
                     "commit_hash": remote_commit_sha[:8],
                     "commit_sha": remote_commit_sha,
                     "commit_url": remote_commit_url,
-                    "commit_message": commit_message,
+                    "commit_message": clean_msg,
+                    "message": clean_msg,
                     "files_committed": verified_files,
                     "repository": self.connected_repo,
                     "mode": "GITHUB_API_LIVE",
                 }
+            return {
+                "success": False,
+                "status": "error",
+                "error": f"Failed to push verified files to GitHub repository '{self.connected_repo}'.",
+            }
 
-        # If workspace is a local git repository, commit via git
+        # If workspace is a local git repository, perform genuine local git commit flow
         if self.is_git_repo(workspace_path):
-            code, out, err = self._run_git(["checkout", "-b", branch_name], cwd=workspace_path)
-            if code != 0:
-                self._run_git(["checkout", branch_name], cwd=workspace_path)
+            # 1. Check that git is available
+            code_v, _, _ = self._run_git(["--version"], cwd=workspace_path)
+            if code_v != 0:
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": "Git executable is not available on system PATH.",
+                }
 
+            # 2. Check if verified files exist on disk
+            missing = [f for f in verified_files if not (workspace_path / f).exists()]
+            if missing:
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": f"Verified files not found in workspace: {', '.join(missing)}",
+                }
+
+            # 3. Check for actual changes in verified files (handle empty working tree)
+            code_st, out_st, _ = self._run_git(["status", "--porcelain", "--"] + verified_files, cwd=workspace_path)
+            code_diff, out_diff, _ = self._run_git(["diff", "HEAD", "--"] + verified_files, cwd=workspace_path)
+            if not out_st.strip() and not out_diff.strip():
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": "Nothing to commit. No changes detected in verified files.",
+                }
+
+            # 4. Check out or create dedicated branch
+            _, cur_branch_out, _ = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=workspace_path)
+            cur_branch = cur_branch_out.strip()
+            if cur_branch != branch_name:
+                code_br, out_br, err_br = self._run_git(["checkout", "-b", branch_name], cwd=workspace_path)
+                if code_br != 0:
+                    code_br, out_br, err_br = self._run_git(["checkout", branch_name], cwd=workspace_path)
+                    if code_br != 0:
+                        return {
+                            "success": False,
+                            "status": "error",
+                            "error": f"Failed to switch to branch '{branch_name}': {err_br.strip() or out_br.strip()}",
+                        }
+
+            # 5. Stage ONLY intended verified files (Phase 10)
             for rel_file in verified_files:
-                self._run_git(["add", rel_file], cwd=workspace_path)
+                code_add, out_add, err_add = self._run_git(["add", "--", rel_file], cwd=workspace_path)
+                if code_add != 0:
+                    return {
+                        "success": False,
+                        "status": "error",
+                        "error": f"Failed to stage file '{rel_file}': {err_add.strip() or out_add.strip()}",
+                    }
 
-            full_msg = f"{commit_message}\n\nAutomated fix verified by LeakGuard AST Analyzer."
-            code_ci, out_ci, err_ci = self._run_git(["commit", "-m", full_msg], cwd=workspace_path)
+            # 6. Verify staged changes exist
+            code_cached, out_cached, _ = self._run_git(["diff", "--cached", "--name-only"], cwd=workspace_path)
+            if not out_cached.strip():
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": "Nothing to commit. No staged changes found for verified files.",
+                }
 
-            _, commit_hash, _ = self._run_git(["rev-parse", "HEAD"], cwd=workspace_path)
-            commit_hash = commit_hash.strip()[:8] if commit_hash else "local-head"
+            # 7. Commit with safe author configuration
+            full_msg = f"{clean_msg}\n\nAutomated fix verified by LeakGuard AST Analyzer."
+            commit_cmd = [
+                "-c", "user.name=LeakGuard Remediation",
+                "-c", "user.email=remediation@leakguard.local",
+                "commit",
+                "-m", full_msg,
+                "--",
+            ] + verified_files
+            code_ci, out_ci, err_ci = self._run_git(commit_cmd, cwd=workspace_path)
+            if code_ci != 0:
+                err_text = err_ci.strip() or out_ci.strip() or "Unknown git commit error"
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": f"Git commit failed: {err_text}",
+                }
 
+            # 8. Retrieve REAL commit SHA
+            code_rev, sha_out, err_rev = self._run_git(["rev-parse", "HEAD"], cwd=workspace_path)
+            full_sha = sha_out.strip()
+            if code_rev != 0 or not full_sha or len(full_sha) < 7:
+                return {
+                    "success": False,
+                    "status": "error",
+                    "error": f"Could not retrieve commit SHA: {err_rev.strip()}",
+                }
+
+            repo_name = self.connected_repo or self.get_repo_name(workspace_path)
             return {
                 "success": True,
+                "status": "COMMITTED",
+                "commit_sha": full_sha,
+                "commit_hash": full_sha[:8],
                 "branch": branch_name,
-                "commit_hash": commit_hash,
-                "commit_message": commit_message,
+                "commit_message": clean_msg,
+                "message": clean_msg,
                 "files_committed": verified_files,
-                "repository": self.connected_repo or "Local Workspace",
+                "repository": repo_name,
                 "mode": "LOCAL_GIT",
             }
 
-        # For extracted workspaces, track clean workspace commit record
-        commit_hash = f"commit_{int(time.time() * 1000)}"[:10]
+        # Neither a Git repository nor authenticated GitHub: return honest, graceful error
+        if not self.github_token:
+            return {
+                "success": False,
+                "status": "error",
+                "error": "Target workspace is not a Git repository, and GitHub integration is not configured.",
+            }
         return {
-            "success": True,
-            "branch": branch_name,
-            "commit_hash": commit_hash,
-            "commit_message": commit_message,
-            "files_committed": verified_files,
-            "repository": self.connected_repo or "Local Workspace",
-            "mode": "GITHUB_API_LIVE" if (self.github_token and self.connected_repo) else "WORKSPACE_COMMIT",
+            "success": False,
+            "status": "error",
+            "error": "GitHub integration is authenticated, but no target repository is connected.",
         }
 
     def create_pull_request(

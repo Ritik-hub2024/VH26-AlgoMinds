@@ -1111,6 +1111,18 @@ body {
   line-height: 1.5;
 }
 
+.git-result-box.git-result-success {
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(6, 78, 59, 0.2);
+  color: #a7f3d0;
+}
+
+.git-result-box.git-result-error {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(127, 29, 29, 0.2);
+  color: #fca5a5;
+}
+
 /* ============================================================
    Modals: Code View, Diff Review, GitHub Connect
    ============================================================ */

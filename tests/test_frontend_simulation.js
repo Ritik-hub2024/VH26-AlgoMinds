@@ -414,6 +414,34 @@ async function runTest() {
       };
     }
 
+    if (urlStr.includes('/api/commit') || urlStr.includes('/api/github/commit')) {
+      if (global._mockCommitError) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({
+            status: 'ERROR',
+            success: false,
+            error: 'Target workspace is not a Git repository, and GitHub integration is not configured.'
+          })
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'COMMITTED',
+          success: true,
+          commit_sha: 'e1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0',
+          commit_hash: 'e1a2b3c4',
+          branch: 'leakguard/fix-resource-leaks',
+          commit_message: 'fix: resolve resource leaks',
+          repository: 'octocat/sample',
+          files_committed: ['file_leak.py']
+        })
+      };
+    }
+
     return {
       ok: true,
       json: async () => ({ status: 'SUCCESS' })
@@ -518,6 +546,29 @@ async function runTest() {
   console.assert(elements['modal-github-connect'].style.display === 'flex', 'GitHub modal should open with display: flex');
   console.assert(elements['gh-view-unauthenticated'].style.display === 'flex', 'Unauthenticated view should be shown');
   console.log('  PASS: GitHub OAuth connect modal renders cleanly.');
+
+  console.log('[TEST 5] Commit Success Flow:');
+  const commitBtnFn = listeners['btn-commit-changes:click'];
+  console.assert(typeof commitBtnFn === 'function', 'btn-commit-changes click listener must exist');
+  global._mockCommitError = false;
+  await commitBtnFn();
+  await new Promise(r => setTimeout(r, 50));
+  console.assert(elements['workflow-state-badge'].textContent.includes('COMMITTED'), 'Workflow should transition to COMMITTED');
+  console.assert(elements['git-action-result'].style.display === 'block', 'Git action result should be visible');
+  console.assert(elements['git-action-result'].innerHTML.includes('COMMIT SUCCESSFUL'), 'Should display COMMIT SUCCESSFUL');
+  console.assert(elements['git-action-result'].innerHTML.includes('e1a2b3c4'), 'Should display commit short SHA');
+  console.assert(elements['git-action-result'].innerHTML.includes('octocat/sample'), 'Should display repository name');
+  console.log('  PASS: Commit button executed, returned SHA, and rendered success state.');
+
+  console.log('[TEST 6] Commit Failure State Flow:');
+  global._mockCommitError = true;
+  await commitBtnFn();
+  await new Promise(r => setTimeout(r, 50));
+  console.assert(elements['workflow-state-badge'].textContent.includes('COMMIT FAILED'), 'Workflow should transition to COMMIT FAILED');
+  console.assert(elements['git-action-result'].innerHTML.includes('COMMIT FAILED'), 'Should display COMMIT FAILED');
+  console.assert(elements['git-action-result'].innerHTML.includes('Target workspace is not a Git repository'), 'Should display failure reason');
+  console.assert(elements['btn-commit-changes'].disabled === false, 'Commit button should be re-enabled on failure');
+  console.log('  PASS: Commit failure handled gracefully without lockup.');
 
   console.log('ALL FRONTEND SIMULATION TESTS PASSED CLEANLY!');
 }

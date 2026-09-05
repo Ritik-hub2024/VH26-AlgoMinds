@@ -37,7 +37,7 @@ from git_integration.git_manager import GitManager, load_dotenv
 load_dotenv()
 
 HOST = "127.0.0.1"
-DEFAULT_PORT = 8000
+DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
 
@@ -94,7 +94,7 @@ _GLOBAL_GIT_MGR = GitManager(repo_dir=ROOT_DIR)
 
 
 class ReusableTCPServer(socketserver.TCPServer):
-    allow_reuse_address = True
+    allow_reuse_address = (sys.platform != "win32")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -220,8 +220,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if parsed.path in ("/api/github/disconnect", "/github/disconnect"):
             self._handle_github_disconnect()
             return
-        if parsed.path in ("/api/github/commit", "/github/commit"):
-            self._handle_github_commit()
+        if parsed.path in ("/api/commit", "/api/git/commit", "/api/projects/workspace/commit", "/api/github/commit", "/github/commit"):
+            self._handle_commit()
+            return
+        if parsed.path in ("/api/projects/workspace/open", "/api/workspace/open", "/api/projects/open"):
+            self._handle_workspace_open()
             return
         if parsed.path in ("/api/github/pull-request", "/github/pull-request"):
             self._handle_github_pull_request()
@@ -483,27 +486,81 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         _GLOBAL_GIT_MGR.disconnect_github()
         self._send_json({"status": "DISCONNECTED", "message": "GitHub account disconnected."})
 
-    def _handle_github_commit(self):
+    def _handle_workspace_open(self):
+        """Safely open an existing directory as an active workspace."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            payload = {}
+            if body:
+                try:
+                    payload = json.loads(body.decode("utf-8"))
+                except Exception:
+                    payload = {}
+
+            target_path_str = payload.get("path") or payload.get("directory") or payload.get("target") or payload.get("workspace_path") or ""
+            target_path_str = target_path_str.strip()
+            if not target_path_str:
+                self._send_json({"error": "Missing 'path' parameter.", "status": "ERROR"}, status=400)
+                return
+
+            target_dir = Path(target_path_str).resolve()
+            if not target_dir.exists():
+                self._send_json({"error": f"Path '{target_path_str}' does not exist.", "status": "ERROR"}, status=404)
+                return
+            if not target_dir.is_dir():
+                self._send_json({"error": f"Path '{target_path_str}' is not a directory.", "status": "ERROR"}, status=400)
+                return
+
+            proj_name = payload.get("project_name") or target_dir.name
+            workspace = self.ws_mgr.create_workspace(proj_name, target_dir, is_temp=False)
+
+            self._send_json({
+                "status": "OPENED",
+                "success": True,
+                "workspace_id": workspace.workspace_id,
+                "project_name": workspace.project_name,
+                "path": str(workspace.root_path),
+                "is_git_repo": workspace.git_manager.is_git_repo(workspace.root_path),
+                "workspace": {
+                    "id": workspace.workspace_id,
+                    "name": workspace.project_name,
+                    "path": str(workspace.root_path),
+                    "is_git_repo": workspace.git_manager.is_git_repo(workspace.root_path),
+                },
+            })
+        except Exception as e:
+            self._send_json({"error": str(e), "status": "ERROR"}, status=500)
+
+    def _handle_commit(self):
         """Create dedicated branch and commit verified changes."""
         try:
             content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            payload = json.loads(body.decode("utf-8"))
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            payload = {}
+            if body:
+                try:
+                    payload = json.loads(body.decode("utf-8"))
+                except Exception:
+                    payload = {}
 
             ws_id = payload.get("workspace_id") or "default"
             workspace = self.ws_mgr.get_workspace(ws_id)
 
             summary = workspace.remediation_engine.get_summary()
-            verified_files = summary["files_changed"]
+            verified_files = payload.get("verified_files") or summary.get("files_changed") or []
 
             if not verified_files:
+                err_msg = "No verified fixes available to commit. Please apply and verify fixes first."
                 self._send_json({
                     "status": "ERROR",
-                    "error": "No verified fixes available to commit. Please apply and verify fixes first.",
+                    "success": False,
+                    "error": err_msg,
+                    "reason": err_msg,
                 }, status=400)
                 return
 
-            branch_name = payload.get("branch_name") or _GLOBAL_GIT_MGR.generate_branch_name()
+            branch_name = payload.get("branch_name") or workspace.git_manager.generate_branch_name()
             commit_msg = payload.get("commit_message") or "fix: resolve Python resource leaks"
 
             res = workspace.git_manager.create_branch_and_commit(
@@ -511,23 +568,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             )
 
             if not res.get("success"):
-                self._send_json({"status": "ERROR", "error": res.get("error")}, status=400)
+                err_msg = res.get("error", "Commit failed.")
+                self._send_json({
+                    "status": "ERROR",
+                    "success": False,
+                    "error": err_msg,
+                    "reason": err_msg,
+                }, status=400)
                 return
 
-            self._send_json({
-                "status": "COMMITTED",
+            commit_payload = {
                 "branch": res["branch"],
                 "commit_hash": res["commit_hash"],
                 "commit_sha": res.get("commit_sha", res["commit_hash"]),
+                "sha": res.get("commit_sha", res["commit_hash"]),
                 "commit_url": res.get("commit_url"),
-                "commit_message": res["commit_message"],
-                "files_committed": res["files_committed"],
-                "repository": res["repository"],
-                "message": f"Committed verified changes to branch '{res['branch']}'.",
+                "commit_message": res.get("commit_message", commit_msg),
+                "message": res.get("message", commit_msg),
+                "files": res.get("files_committed", verified_files),
+                "files_committed": res.get("files_committed", verified_files),
+                "repository": res.get("repository", workspace.project_name),
+                "mode": res.get("mode", "LOCAL_GIT"),
+            }
+            self._send_json({
+                "status": "COMMITTED",
+                "success": True,
+                "branch": res["branch"],
+                "commit_hash": res["commit_hash"],
+                "commit_sha": res.get("commit_sha", res["commit_hash"]),
+                "sha": res.get("commit_sha", res["commit_hash"]),
+                "commit_url": res.get("commit_url"),
+                "commit_message": res.get("commit_message", commit_msg),
+                "message": res.get("message", commit_msg),
+                "files_committed": res.get("files_committed", verified_files),
+                "repository": res.get("repository", workspace.project_name),
+                "mode": res.get("mode", "LOCAL_GIT"),
+                "commit": commit_payload,
             })
 
         except Exception as e:
-            self._send_json({"error": str(e), "status": "ERROR"}, status=500)
+            self._send_json({"error": str(e), "reason": str(e), "status": "ERROR", "success": False}, status=500)
+
+    # Maintain backward-compatible alias
+    _handle_github_commit = _handle_commit
 
     def _handle_github_pull_request(self):
         """Create Pull Request for verified fixes branch."""
@@ -687,17 +770,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             ws_id = payload.get("workspace_id") or qs.get("workspace_id", ["default"])[0] or "default"
             target_sub = payload.get("target") or qs.get("target", [""])[0] or ""
             target_sub = target_sub.strip()
+            req_path = payload.get("workspace_path") or payload.get("path") or qs.get("path", [None])[0]
 
             workspace = self.ws_mgr.get_workspace(ws_id)
             scan_path = workspace.root_path
-            if target_sub:
+
+            if req_path:
+                cand_path = Path(req_path).resolve()
+                if cand_path.exists() and cand_path.is_dir():
+                    workspace = self.ws_mgr.create_workspace(cand_path.name, cand_path, is_temp=False)
+                    scan_path = cand_path
+            elif target_sub:
                 sub_candidate = (workspace.root_path / target_sub).resolve()
                 try:
                     sub_candidate.relative_to(workspace.root_path)
                     if sub_candidate.exists():
                         scan_path = sub_candidate
                 except ValueError:
-                    pass
+                    abs_cand = Path(target_sub).resolve()
+                    if abs_cand.exists() and abs_cand.is_dir():
+                        workspace = self.ws_mgr.create_workspace(abs_cand.name, abs_cand, is_temp=False)
+                        scan_path = abs_cand
 
             import importlib
             importlib.reload(cli)
@@ -952,6 +1045,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             self._send_json({
                 "status": "SUCCESS",
+                "success": True,
                 "fix": res["fix"],
                 "diff": res["diff"],
             })
@@ -975,6 +1069,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not res.get("success"):
                 self._send_json({
                     "status": "ERROR",
+                    "success": False,
                     "verified": False,
                     "error": res.get("error", "Failed to apply fix."),
                 }, status=400)
@@ -987,6 +1082,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             self._send_json({
                 "status": "VERIFIED",
+                "success": True,
                 "verified": True,
                 "message": "Fix applied and verified! Issue no longer detected.",
                 "fix": res["fix"],
@@ -1004,7 +1100,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body = self.rfile.read(content_length)
             payload = json.loads(body.decode("utf-8"))
             fix_id = payload.get("fix_id")
-            self._send_json({"status": "REJECTED", "fix_id": fix_id, "message": "Fix rejected."})
+            self._send_json({"status": "REJECTED", "success": True, "fix_id": fix_id, "message": "Fix rejected."})
         except Exception as e:
             self._send_json({"error": str(e), "status": "ERROR"}, status=500)
 
@@ -1022,9 +1118,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             self._send_json({
                 "status": "SUCCESS",
+                "success": True,
                 "total_issues": total_detected,
                 "automatically_fixed": verified,
                 "manual_review_required": manual_required,
+                "remediation_ready": verified > 0 and len(summary["files_changed"]) > 0,
                 "files_changed": summary["files_changed"],
                 "lines_added": summary["lines_added"],
                 "lines_removed": summary["lines_removed"],
@@ -1211,6 +1309,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         scan_type: str = "LOCAL SCAN",
         branch: str = "main",
         repository: str = "Local Workspace",
+        workspace_id: str | None = None,
+        workspace: Any = None,
     ):
         has_leaks = len(report.issues) > 0
         has_syntax_errors = len(report.syntax_errors) > 0
@@ -1219,27 +1319,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         ref_dir = base_dir or ROOT_DIR
 
         findings = []
-        for issue in report.issues:
+        for idx, issue in enumerate(report.issues):
             try:
                 rel_file = Path(issue.location.file_path).relative_to(ref_dir).as_posix()
             except Exception:
                 rel_file = Path(issue.location.file_path).name
 
-            findings.append({
-                "severity": issue.severity.value if hasattr(issue.severity, "value") else str(issue.severity),
+            finding_id = f"f_{idx + 1}_{Path(rel_file).name}_{issue.location.line}"
+            rule_id = issue.rule_id
+            severity = issue.severity.value if hasattr(issue.severity, "value") else str(issue.severity)
+            var_name = issue.resource_name or getattr(issue, "variable", "f")
+            resource_type = issue.resource_type or "resource"
+
+            finding_dict = {
+                "id": finding_id,
+                "rule_id": rule_id,
+                "severity": severity,
                 "file": rel_file,
                 "line": issue.location.line,
                 "opened_line": issue.location.line,
-                "resource": f"{issue.resource_name} ({issue.resource_type})" if issue.resource_name else (issue.resource_type or "Resource"),
-                "variable": issue.resource_name or getattr(issue, "variable", "f"),
+                "resource": f"{var_name} ({resource_type})" if var_name else resource_type,
+                "resource_name": var_name,
+                "variable": var_name,
+                "resource_type": resource_type,
+                "problem": issue.message or issue.problem,
                 "reason": issue.message or issue.problem,
+                "why_dangerous": "Unmanaged system resources can lead to exhaustion, file locks, or silent data loss under high load.",
                 "leak_path": issue.leak_path or "",
                 "path": issue.leak_path or "",
                 "cleanup_status": getattr(issue, "cleanup_status", "UNCLOSED"),
                 "recommendation": issue.recommendation or "",
                 "function_name": issue.function_name or "",
-                "rule_id": issue.rule_id,
-            })
+                "classification": getattr(issue, "classification", "LEAK"),
+                "ownership_status": getattr(issue, "ownership_status", "LOCAL"),
+                "is_fixable": True,
+            }
+            findings.append(finding_dict)
+            if workspace is not None:
+                workspace.findings_map[finding_id] = finding_dict
 
         syntax_errors = []
         for err in report.syntax_errors:
@@ -1306,6 +1423,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 "duration_seconds": round(report.duration_seconds, 4),
             },
         }
+
+        if workspace_id:
+            data["workspace_id"] = workspace_id
 
         # Persist scan result automatically for Admin & History
         scan_rec = None
@@ -1489,38 +1609,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             final_project_id = requested_project_id or default_project_id
             final_project_name = requested_project_name or default_proj_name
 
-            # Execute AST scan in isolated temporary directory
-            with tempfile.TemporaryDirectory(prefix="leakguard_upload_") as tmpdir:
-                tmpdir_path = Path(tmpdir).resolve()
-                for rel_path, content_bytes in py_files:
-                    dest = (tmpdir_path / rel_path).resolve()
-                    try:
-                        dest.relative_to(tmpdir_path)
-                    except ValueError:
-                        self._send_json({"error": "Path traversal detected.", "status": "ERROR"}, status=400)
-                        return
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(content_bytes)
+            # Create persistent isolated workspace directory for this upload
+            tmp_dir = tempfile.mkdtemp(prefix="leakguard_upload_")
+            tmpdir_path = Path(tmp_dir).resolve()
+            for rel_path, content_bytes in py_files:
+                dest = (tmpdir_path / rel_path).resolve()
+                try:
+                    dest.relative_to(tmpdir_path)
+                except ValueError:
+                    self._send_json({"error": "Path traversal detected.", "status": "ERROR"}, status=400)
+                    return
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(content_bytes)
 
-                if is_single:
-                    scan_target_path = str(tmpdir_path / py_files[0][0])
-                else:
-                    scan_target_path = str(tmpdir_path)
+            workspace = self.ws_mgr.create_workspace(final_project_name, tmpdir_path, is_temp=True)
 
-                import importlib
-                importlib.reload(cli)
-                report = cli.scan_target(scan_target_path)
+            if is_single:
+                scan_target_path = str(tmpdir_path / py_files[0][0])
+            else:
+                scan_target_path = str(tmpdir_path)
 
-                self._build_scan_response(
-                    report=report,
-                    target_display=target_display,
-                    base_dir=tmpdir_path,
-                    project_id=final_project_id,
-                    project_name=final_project_name,
-                    scan_type=scan_type,
-                    branch="upload",
-                    repository="Uploaded Code",
-                )
+            import importlib
+            importlib.reload(cli)
+            report = cli.scan_target(scan_target_path)
+            workspace.last_report = report
+
+            self._build_scan_response(
+                report=report,
+                target_display=target_display,
+                base_dir=tmpdir_path,
+                project_id=final_project_id,
+                project_name=final_project_name,
+                scan_type=scan_type,
+                branch="upload",
+                repository="Uploaded Code",
+                workspace_id=workspace.workspace_id,
+                workspace=workspace,
+            )
         except Exception as e:
             self._send_json({"error": str(e), "status": "ERROR"}, status=500)
 
